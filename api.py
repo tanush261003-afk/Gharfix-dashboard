@@ -12,6 +12,14 @@ CORS(app)
 
 cache = redis.Redis(host=REDIS['host'], port=REDIS['port'], db=2, decode_responses=True)
 
+# ✅ Initialize database schema on startup
+try:
+    print("🔄 Initializing database schema...")
+    db.initialize_schema()
+    print("✅ Database schema initialized successfully!")
+except Exception as e:
+    print(f"⚠️ Database initialization: {e}")
+
 @app.route('/api/all-analytics')
 def get_all_analytics():
     """Get all-time analytics (complete database analysis)"""
