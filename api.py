@@ -164,14 +164,17 @@ def rescrape_leads():
         
         return jsonify({
             'status': 'success',
-            'message': f"Rescrape complete! Added {result['inserted']} new leads",
+            'message': f"Rescrape complete! Added {result['inserted']} new leads, {result['duplicates']} duplicates",
             'inserted': result['inserted'],
             'duplicates': result['duplicates'],
             'total_fetched': len(leads)
         })
     except Exception as e:
         print(f"❌ Rescrape error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e), 'status': 'error'}), 500
+
 
 @app.route('/api/update-analytics', methods=['POST'])
 def update_analytics():
