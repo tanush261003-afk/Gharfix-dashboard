@@ -421,34 +421,65 @@
             const service = document.getElementById('serviceFilter').value;
             const dateFrom = document.getElementById('dateFrom').value;
             const dateTo = document.getElementById('dateTo').value;
-
+        
             try {
                 const params = new URLSearchParams();
-                if (status) params.append('status', status);
-                if (service) params.append('service', service);
+                if (status && status !== 'All Status') params.append('status', status);
+                if (service && service !== 'All Services') params.append('service', service);
                 if (dateFrom) params.append('from', dateFrom);
                 if (dateTo) params.append('to', dateTo);
-
-                const response = await axios.get(`/api/filtered-analytics?${params}`);
-                const data = response.data;
-
-                document.getElementById('totalLeads').textContent = data.total_leads;
+        
+                // Fetch filtered analytics
+                const response = await fetch(`/api/filtered-analytics?${params}`);
+                const data = await response.json();
+        
+                // Update the 4 stat boxes with filtered data
+                document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = data.total_leads;
                 
-                const servicesHtml = data.all_services.map(s => {
-                    const percentage = data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : '0.0';
-                    return `<tr><td>${s.service_name}</td><td>${s.count}</td><td>${percentage}%</td></tr>`;
-                }).join('');
-                document.getElementById('servicesTable').innerHTML = servicesHtml || '<tr><td colspan="3">No data</td></tr>';
-
-                const statusHtml = data.status_distribution.map(s => {
-                    const percentage = data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : '0.0';
-                    return `<tr><td>${s.status}</td><td>${s.count}</td><td>${percentage}%</td></tr>`;
-                }).join('');
-                document.getElementById('statusTable').innerHTML = statusHtml || '<tr><td colspan="3">No data</td></tr>';
-
-                updateCharts(data);
+                // Calculate interested count from status distribution
+                const interestedCount = data.status_distribution.find(s => s.status.toUpperCase() === 'INTERESTED')?.count || 0;
+                document.querySelector('.stat-card:nth-child(2) .stat-value').textContent = interestedCount;
+                
+                // Calculate not interested count
+                const notInterestedCount = data.status_distribution.find(s => s.status.toUpperCase() === 'NOT INTERESTED')?.count || 0;
+                document.querySelector('.stat-card:nth-child(3) .stat-value').textContent = notInterestedCount;
+                
+                // Calculate in progress count
+                const inProgressCount = data.status_distribution.find(s => s.status.toUpperCase() === 'IN PROGRESS')?.count || 0;
+                document.querySelector('.stat-card:nth-child(4) .stat-value').textContent = inProgressCount;
+        
+                // Update services table
+                const servicesTable = document.querySelector('.services-table tbody');
+                servicesTable.innerHTML = '';
+                data.all_services.forEach(service => {
+                    const row = `
+                        <tr>
+                            <td>${service.service_name}</td>
+                            <td>${service.count}</td>
+                            <td>${((service.count / data.total_leads) * 100).toFixed(1)}%</td>
+                        </tr>
+                    `;
+                    servicesTable.innerHTML += row;
+                });
+        
+                // Update status distribution table
+                const statusTable = document.querySelector('.status-table tbody');
+                statusTable.innerHTML = '';
+                data.status_distribution.forEach(status => {
+                    const row = `
+                        <tr>
+                            <td>${status.status}</td>
+                            <td>${status.count}</td>
+                            <td>${((status.count / data.total_leads) * 100).toFixed(1)}%</td>
+                        </tr>
+                    `;
+                    statusTable.innerHTML += row;
+                });
+        
+                console.log('✅ Filters applied:', data);
             } catch (error) {
-                console.error('Error applying filters:', error);
+                console.error('❌ Error applying filters:', error);
+                alert('Error applying filters');
             }
         }
 
