@@ -438,9 +438,7 @@
                     url += `to=${encodeURIComponent(dateTo)}&`;
                 }
         
-                // Remove trailing &
                 url = url.replace(/&$/, '');
-        
                 console.log('📊 Fetching:', url);
                 
                 const response = await fetch(url);
@@ -451,46 +449,56 @@
                 const data = await response.json();
                 console.log('✅ Filter data received:', data);
         
-                // Update stat boxes
-                document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = data.total_leads || 0;
-                
-                const interestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'INTERESTED')?.count || 0;
-                document.querySelector('.stat-card:nth-child(2) .stat-value').textContent = interestedCount;
-                
-                const notInterestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'NOT INTERESTED')?.count || 0;
-                document.querySelector('.stat-card:nth-child(3) .stat-value').textContent = notInterestedCount;
-                
-                const inProgressCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'IN PROGRESS')?.count || 0;
-                document.querySelector('.stat-card:nth-child(4) .stat-value').textContent = inProgressCount;
+                // Safely update stat boxes - check if elements exist first
+                const statCards = document.querySelectorAll('.stat-card');
+                if (statCards.length >= 4) {
+                    const totalLead = statCards[0].querySelector('.stat-value');
+                    const interested = statCards[1].querySelector('.stat-value');
+                    const notInterested = statCards[2].querySelector('.stat-value');
+                    const inProgress = statCards[3].querySelector('.stat-value');
+                    
+                    if (totalLead) totalLead.textContent = data.total_leads || 0;
+                    
+                    const interestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'INTERESTED')?.count || 0;
+                    if (interested) interested.textContent = interestedCount;
+                    
+                    const notInterestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'NOT INTERESTED')?.count || 0;
+                    if (notInterested) notInterested.textContent = notInterestedCount;
+                    
+                    const inProgressCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'IN PROGRESS')?.count || 0;
+                    if (inProgress) inProgress.textContent = inProgressCount;
+                }
         
                 // Update services table
-                const servicesHtml = data.all_services?.map(s => `
-                    <tr>
-                        <td>${s.service_name || 'Unknown'}</td>
-                        <td>${s.count || 0}</td>
-                        <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
-                    </tr>
-                `).join('') || '<tr><td colspan="3">No data</td></tr>';
-                
-                document.querySelector('.services-table tbody').innerHTML = servicesHtml;
+                const servicesTable = document.querySelector('.services-table tbody');
+                if (servicesTable) {
+                    servicesTable.innerHTML = data.all_services?.map(s => `
+                        <tr>
+                            <td>${s.service_name || 'Unknown'}</td>
+                            <td>${s.count || 0}</td>
+                            <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
+                        </tr>
+                    `).join('') || '<tr><td colspan="3">No data</td></tr>';
+                }
         
                 // Update status distribution table
-                const statusHtml = data.status_distribution?.map(s => `
-                    <tr>
-                        <td>${s.status || 'Unknown'}</td>
-                        <td>${s.count || 0}</td>
-                        <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
-                    </tr>
-                `).join('') || '<tr><td colspan="3">No data</td></tr>';
-                
-                document.querySelector('.status-table tbody').innerHTML = statusHtml;
+                const statusTable = document.querySelector('.status-table tbody');
+                if (statusTable) {
+                    statusTable.innerHTML = data.status_distribution?.map(s => `
+                        <tr>
+                            <td>${s.status || 'Unknown'}</td>
+                            <td>${s.count || 0}</td>
+                            <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
+                        </tr>
+                    `).join('') || '<tr><td colspan="3">No data</td></tr>';
+                }
         
                 console.log('✅ Dashboard updated successfully');
             } catch (error) {
-                console.error('❌ Filter Error Details:', error);
+                console.error('❌ Filter Error:', error);
                 alert(`Error: ${error.message}`);
             }
-}
+        }
 
 
         // Load analytics on page load ONLY
