@@ -5,20 +5,19 @@ import redis
 import json
 import os
 from database import db
-from config import REDIS, API_HOST, API_PORT
 
 app = Flask(__name__)
 CORS(app)
 
-cache = redis.Redis(host=REDIS['host'], port=REDIS['port'], db=2, decode_responses=True)
-
-# ✅ Initialize database schema on startup
+# Initialize database schema on startup
 try:
     print("🔄 Initializing database schema...")
     db.initialize_schema()
     print("✅ Database schema initialized successfully!")
 except Exception as e:
     print(f"⚠️ Database initialization: {e}")
+
+# ==================== ANALYTICS ROUTES ====================
 
 @app.route('/api/all-analytics')
 def get_all_analytics():
@@ -32,7 +31,7 @@ def get_all_analytics():
         total = cur.fetchone()[0]
         print(f"📊 DEBUG: Total leads = {total}")
         
-        # All services - USE SUB_CATEGORY_NAME
+        # All services
         cur.execute("""
             SELECT 
                 COALESCE(sub_category_name, 'Other') as service, 
@@ -49,27 +48,12 @@ def get_all_analytics():
         cur.execute("SELECT status, COUNT(*) as count FROM leads GROUP BY status ORDER BY count DESC")
         status_dist = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
         
-        # Interested count
-        cur.execute("SELECT COUNT(*) FROM leads WHERE UPPER(status) = 'INTERESTED'")
-        interested = cur.fetchone()[0]
-        
-        # Not interested count
-        cur.execute("SELECT COUNT(*) FROM leads WHERE UPPER(status) = 'NOT INTERESTED'")
-        not_interested = cur.fetchone()[0]
-        
-        # In progress count
-        cur.execute("SELECT COUNT(*) FROM leads WHERE UPPER(status) = 'IN PROGRESS'")
-        in_progress = cur.fetchone()[0]
-        
         conn.close()
         
         response_data = {
             'total_leads': total,
             'all_services': all_services,
             'status_distribution': status_dist,
-            'interested_count': interested,
-            'not_interested_count': not_interested,
-            'in_progress_count': in_progress,
             'timestamp': str(datetime.now())
         }
         
@@ -82,13 +66,10 @@ def get_all_analytics():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/api/filtered-analytics')
 def get_filtered_analytics():
     status = request.args.get('status', '')
     service = request.args.get('service', '')
-    date_from = request.args.get('from', '')
-    date_to = request.args.get('to', '')
 
     try:
         conn = db._get_connection()
@@ -161,6 +142,7 @@ def get_filtered_analytics():
         traceback.print_exc()
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
+# ==================== RESCRAPE ROUTE ====================
 
 @app.route('/api/rescrape', methods=['POST'])
 def rescrape_leads():
@@ -170,11 +152,11 @@ def rescrape_leads():
         
         print("🔄 Starting rescrape...")
         
-        # Fetch ALL leads from Bellevie
+        # Fetch ALL leads from Bellevue
         leads = scraper.fetch_all_leads()
         
         if not leads:
-            return jsonify({'error': 'No leads fetched from Bellevie', 'status': 'error'}), 400
+            return jsonify({'error': 'No leads fetched from Bellevue', 'status': 'error'}), 400
         
         print(f"✅ TOTAL LEADS FETCHED: {len(leads)}")
         
@@ -182,7 +164,7 @@ def rescrape_leads():
         result = db.insert_leads(leads)
         print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
         
-        # Export to files (create them even if empty)
+        # Export to files
         try:
             print("📁 Exporting to CSV...")
             scraper.export_to_csv(leads, 'all_leads.csv')
@@ -211,60 +193,8 @@ def rescrape_leads():
         traceback.print_exc()
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
+# ==================== DOWNLOAD ROUTES (SINGLE SET ONLY) ====================
 
-@app.route('/api/update-analytics', methods=['POST'])
-def update_analytics():
-    """Manually trigger analytics update"""
-    try:
-        analytics = db.get_analytics()
-        cache.set('analytics', json.dumps(analytics), ex=3600)
-        return jsonify({
-            'status': 'success',
-            'message': 'Analytics updated successfully',
-            'data': analytics
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/dashboard')
-def dashboard():
-    try:
-        return send_file('dashboard_advanced.html')
-    except:
-        return "<h1>Dashboard</h1><p>dashboard_advanced.html not found</p>", 404
-
-@app.route('/')
-def index():
-    return jsonify({"status": "Bellevie Analytics API Running"})
-
-@app.route('/api/download/csv')
-def download_csv():
-    """Download all leads as CSV"""
-    try:
-        if not os.path.exists('all_leads.csv'):
-            return jsonify({'error': 'CSV file not found'}), 404
-        
-        return send_file('all_leads.csv', 
-                        mimetype='text/csv',
-                        as_attachment=True,
-                        download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/download/json')
-def download_json():
-    """Download all leads as JSON"""
-    try:
-        if not os.path.exists('all_leads.json'):
-            return jsonify({'error': 'JSON file not found'}), 404
-        
-        return send_file('all_leads.json',
-                        mimetype='application/json',
-                        as_attachment=True,
-                        download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-        
 @app.route('/api/download/csv')
 def download_csv():
     """Download all leads as CSV"""
@@ -295,9 +225,21 @@ def download_json():
         print(f"❌ JSON download error: {e}")
         return jsonify({'error': str(e)}), 500
 
+# ==================== UTILITY ROUTES ====================
+
+@app.route('/dashboard')
+def dashboard():
+    try:
+        return send_file('dashboard_advanced.html')
+    except:
+        return "<h1>Dashboard</h1><p>dashboard_advanced.html not found</p>", 404
+
+@app.route('/')
+def index():
+    return jsonify({"status": "Bellevue Analytics API Running"})
 
 if __name__ == '__main__':
-    print(f"\n{'='*60}\n🚀 Advanced Analytics API\n{'='*60}")
-    print(f"Dashboard: http://localhost:{API_PORT}/dashboard")
-    print(f"{'='*60}\n")
-    app.run(host=API_HOST, port=API_PORT, debug=False)
+    print("\n" + "="*60)
+    print("🚀 Advanced Analytics API")
+    print("="*60 + "\n")
+    app.run(host='0.0.0.0', port=10000, debug=False)
