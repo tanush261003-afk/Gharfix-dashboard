@@ -71,7 +71,7 @@ class Database:
         print("✓ Database schema initialized")
     
     def insert_leads(self, leads):
-        """INSERT LEADS - BATCH INSERTS FOR SPEED"""
+    """INSERT LEADS - BATCH INSERTS FOR SPEED"""
         if not leads:
             return {'inserted': 0, 'duplicates': 0}
         
@@ -86,6 +86,9 @@ class Database:
             batch = leads[i:i+batch_size]
             
             try:
+                batch_inserted = 0
+                batch_duplicates = 0
+                
                 for lead in batch:
                     cur.execute("""
                         INSERT INTO leads (
@@ -121,23 +124,28 @@ class Database:
                         lead.get('updatedAt'),
                         lead.get('submittedAt')
                     ))
+                    
+                    # Check if row was inserted (rowcount > 0) or skipped (rowcount == 0)
                     if cur.rowcount > 0:
+                        batch_inserted += 1
                         inserted += 1
                     else:
+                        batch_duplicates += 1
                         duplicates += 1
                 
                 # Commit every 100 records
                 conn.commit()
-                print(f"✅ Batch {i//batch_size + 1}: Inserted {inserted} leads")
+                print(f"✅ Batch {i//batch_size + 1}: {batch_inserted} new, {batch_duplicates} duplicates")
                 
             except Exception as e:
-                print(f"Error in batch: {e}")
+                print(f"❌ Error in batch {i//batch_size + 1}: {e}")
                 conn.rollback()
                 duplicates += len(batch)
         
         cur.close()
         conn.close()
         return {'inserted': inserted, 'duplicates': duplicates}
+
     
     def get_analytics(self):
         """Get all-time analytics"""
