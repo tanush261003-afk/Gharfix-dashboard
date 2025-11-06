@@ -3,11 +3,9 @@ import os
 
 class Database:
     def __init__(self):
-        # Use DATABASE_URL from environment (Neon in production, localhost in dev)
         db_url = os.getenv("DATABASE_URL")
         
         if not db_url:
-            # Fallback for local development
             from config import DATABASE
             self.db_url = None
             self.config = DATABASE
@@ -16,13 +14,10 @@ class Database:
             self.config = None
     
     def _get_connection(self):
-        """Create connection using DATABASE_URL or fallback config"""
         try:
             if self.db_url:
-                # Use Neon connection string (production)
                 return psycopg.connect(self.db_url, autocommit=True)
             else:
-                # Use local config (development)
                 return psycopg.connect(
                     host=self.config['host'],
                     port=self.config['port'],
@@ -71,7 +66,6 @@ class Database:
         print("✓ Database schema initialized")
     
     def insert_leads(self, leads):
-    """INSERT LEADS - BATCH INSERTS FOR SPEED"""
         if not leads:
             return {'inserted': 0, 'duplicates': 0}
         
@@ -80,7 +74,6 @@ class Database:
         inserted = 0
         duplicates = 0
         
-        # Insert in batches of 100
         batch_size = 100
         for i in range(0, len(leads), batch_size):
             batch = leads[i:i+batch_size]
@@ -125,7 +118,6 @@ class Database:
                         lead.get('submittedAt')
                     ))
                     
-                    # Check if row was inserted (rowcount > 0) or skipped (rowcount == 0)
                     if cur.rowcount > 0:
                         batch_inserted += 1
                         inserted += 1
@@ -133,7 +125,6 @@ class Database:
                         batch_duplicates += 1
                         duplicates += 1
                 
-                # Commit every 100 records
                 conn.commit()
                 print(f"✅ Batch {i//batch_size + 1}: {batch_inserted} new, {batch_duplicates} duplicates")
                 
@@ -145,18 +136,14 @@ class Database:
         cur.close()
         conn.close()
         return {'inserted': inserted, 'duplicates': duplicates}
-
     
     def get_analytics(self):
-        """Get all-time analytics"""
         conn = self._get_connection()
         cur = conn.cursor()
         
-        # Total leads
         cur.execute("SELECT COUNT(*) FROM leads")
         total = cur.fetchone()[0]
         
-        # Status distribution
         cur.execute("""
             SELECT status, COUNT(*) as count 
             FROM leads 
@@ -165,7 +152,6 @@ class Database:
         """)
         status_dist = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
         
-        # Top services - USE SUB_CATEGORY_NAME
         cur.execute("""
             SELECT 
                 COALESCE(sub_category_name, 'Other') as service, 
@@ -188,7 +174,6 @@ class Database:
         }
 
     def get_all_leads(self):
-        """Get all leads from database"""
         conn = self._get_connection()
         cur = conn.cursor()
         
