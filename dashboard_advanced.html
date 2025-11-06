@@ -417,71 +417,81 @@
         }
 
         async function applyFilters() {
-            const status = document.getElementById('statusFilter').value;
-            const service = document.getElementById('serviceFilter').value;
-            const dateFrom = document.getElementById('dateFrom').value;
-            const dateTo = document.getElementById('dateTo').value;
+            const status = document.getElementById('statusFilter')?.value || 'All Status';
+            const service = document.getElementById('serviceFilter')?.value || 'All Services';
+            const dateFrom = document.getElementById('dateFrom')?.value || '';
+            const dateTo = document.getElementById('dateTo')?.value || '';
         
             try {
-                const params = new URLSearchParams();
-                if (status && status !== 'All Status') params.append('status', status);
-                if (service && service !== 'All Services') params.append('service', service);
-                if (dateFrom) params.append('from', dateFrom);
-                if (dateTo) params.append('to', dateTo);
-        
-                // Fetch filtered analytics
-                const response = await fetch(`/api/filtered-analytics?${params}`);
-                const data = await response.json();
-        
-                // Update the 4 stat boxes with filtered data
-                document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = data.total_leads;
+                let url = '/api/filtered-analytics?';
                 
-                // Calculate interested count from status distribution
-                const interestedCount = data.status_distribution.find(s => s.status.toUpperCase() === 'INTERESTED')?.count || 0;
+                if (status && status !== 'All Status') {
+                    url += `status=${encodeURIComponent(status)}&`;
+                }
+                if (service && service !== 'All Services') {
+                    url += `service=${encodeURIComponent(service)}&`;
+                }
+                if (dateFrom) {
+                    url += `from=${encodeURIComponent(dateFrom)}&`;
+                }
+                if (dateTo) {
+                    url += `to=${encodeURIComponent(dateTo)}&`;
+                }
+        
+                // Remove trailing &
+                url = url.replace(/&$/, '');
+        
+                console.log('📊 Fetching:', url);
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('✅ Filter data received:', data);
+        
+                // Update stat boxes
+                document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = data.total_leads || 0;
+                
+                const interestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'INTERESTED')?.count || 0;
                 document.querySelector('.stat-card:nth-child(2) .stat-value').textContent = interestedCount;
                 
-                // Calculate not interested count
-                const notInterestedCount = data.status_distribution.find(s => s.status.toUpperCase() === 'NOT INTERESTED')?.count || 0;
+                const notInterestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'NOT INTERESTED')?.count || 0;
                 document.querySelector('.stat-card:nth-child(3) .stat-value').textContent = notInterestedCount;
                 
-                // Calculate in progress count
-                const inProgressCount = data.status_distribution.find(s => s.status.toUpperCase() === 'IN PROGRESS')?.count || 0;
+                const inProgressCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'IN PROGRESS')?.count || 0;
                 document.querySelector('.stat-card:nth-child(4) .stat-value').textContent = inProgressCount;
         
                 // Update services table
-                const servicesTable = document.querySelector('.services-table tbody');
-                servicesTable.innerHTML = '';
-                data.all_services.forEach(service => {
-                    const row = `
-                        <tr>
-                            <td>${service.service_name}</td>
-                            <td>${service.count}</td>
-                            <td>${((service.count / data.total_leads) * 100).toFixed(1)}%</td>
-                        </tr>
-                    `;
-                    servicesTable.innerHTML += row;
-                });
+                const servicesHtml = data.all_services?.map(s => `
+                    <tr>
+                        <td>${s.service_name || 'Unknown'}</td>
+                        <td>${s.count || 0}</td>
+                        <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
+                    </tr>
+                `).join('') || '<tr><td colspan="3">No data</td></tr>';
+                
+                document.querySelector('.services-table tbody').innerHTML = servicesHtml;
         
                 // Update status distribution table
-                const statusTable = document.querySelector('.status-table tbody');
-                statusTable.innerHTML = '';
-                data.status_distribution.forEach(status => {
-                    const row = `
-                        <tr>
-                            <td>${status.status}</td>
-                            <td>${status.count}</td>
-                            <td>${((status.count / data.total_leads) * 100).toFixed(1)}%</td>
-                        </tr>
-                    `;
-                    statusTable.innerHTML += row;
-                });
+                const statusHtml = data.status_distribution?.map(s => `
+                    <tr>
+                        <td>${s.status || 'Unknown'}</td>
+                        <td>${s.count || 0}</td>
+                        <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
+                    </tr>
+                `).join('') || '<tr><td colspan="3">No data</td></tr>';
+                
+                document.querySelector('.status-table tbody').innerHTML = statusHtml;
         
-                console.log('✅ Filters applied:', data);
+                console.log('✅ Dashboard updated successfully');
             } catch (error) {
-                console.error('❌ Error applying filters:', error);
-                alert('Error applying filters');
+                console.error('❌ Filter Error Details:', error);
+                alert(`Error: ${error.message}`);
             }
-        }
+}
+
 
         // Load analytics on page load ONLY
         loadAnalytics();
