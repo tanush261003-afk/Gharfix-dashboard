@@ -82,6 +82,7 @@ def get_all_analytics():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/filtered-analytics')
 def get_filtered_analytics():
     status = request.args.get('status', '')
@@ -93,53 +94,63 @@ def get_filtered_analytics():
         conn = db._get_connection()
         cur = conn.cursor()
 
-        where = []
+        # Build WHERE clause
+        where_conditions = []
         params = []
 
-        if status:
-            where.append("UPPER(status) = UPPER(%s)")
+        if status and status != 'All Status':
+            where_conditions.append("UPPER(status) = UPPER(%s)")
             params.append(status)
         
         if service and service != 'All Services':
-            where.append("sub_category_name = %s")
+            where_conditions.append("UPPER(sub_category_name) = UPPER(%s)")
             params.append(service)
-        
-        if date_from:
-            where.append("submitted_at >= %s")
-            params.append(int(datetime.strptime(date_from, '%Y-%m-%d').timestamp() * 1000))
-        if date_to:
-            where.append("submitted_at <= %s")
-            params.append(int(datetime.strptime(date_to, '%Y-%m-%d').timestamp() * 1000 + 86399999))
 
-        query = "SELECT * FROM leads"
-        if where:
-            query += " WHERE " + " AND ".join(where)
+        # Build query
+        base_query = "SELECT * FROM leads"
+        if where_conditions:
+            base_query += " WHERE " + " AND ".join(where_conditions)
 
-        cur.execute(query, params)
+        print(f"📊 Query: {base_query}")
+        print(f"📊 Params: {params}")
+
+        cur.execute(base_query, params)
         leads = cur.fetchall()
-        total = len(leads)
+        total_leads = len(leads)
 
-        # Compute analytics from these leads
-        from collections import Counter
-        if leads:
-            statuses = Counter(row[18] for row in leads)
+        print(f"📊 Found {total_leads} leads")
+
+        # Calculate stats from filtered leads
+        status_counts = {}
+        service_counts = {}
+
+        for lead in leads:
+            # status is at index 18
+            lead_status = lead[18] if len(lead) > 18 else 'UNKNOWN'
+            status_counts[lead_status] = status_counts.get(lead_status, 0) + 1
+
             # sub_category_name is at index 15
-            services = Counter(
-                row[15] 
-                for row in leads 
-                if row[15]
-            )
-        else:
-            statuses = Counter()
-            services = Counter()
+            lead_service = lead[15] if len(lead) > 15 else 'Other'
+            if lead_service:
+                service_counts[lead_service] = service_counts.get(lead_service, 0) + 1
 
-        all_services = [{'service_name': k, 'count': v} for k, v in services.most_common()]
-        status_distribution = [{'status': k, 'count': v} for k, v in statuses.most_common()]
+        status_distribution = [
+            {'status': k, 'count': v} 
+            for k, v in sorted(status_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        all_services = [
+            {'service_name': k, 'count': v} 
+            for k, v in sorted(service_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
 
         conn.close()
 
+        print(f"✅ Status dist: {status_distribution}")
+        print(f"✅ Services: {all_services}")
+
         return jsonify({
-            'total_leads': total,
+            'total_leads': total_leads,
             'all_services': all_services,
             'status_distribution': status_distribution
         })
@@ -148,7 +159,8 @@ def get_filtered_analytics():
         print(f"❌ Error in get_filtered_analytics: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
 
 @app.route('/api/rescrape', methods=['POST'])
 def rescrape_leads():
