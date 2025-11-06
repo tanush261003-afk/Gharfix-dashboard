@@ -134,10 +134,14 @@
             text-transform: uppercase;
         }
 
-        .stat-card .value {
+        .stat-card .stat-value {
             font-size: 2.5em;
             color: #667eea;
             font-weight: bold;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .chart-container {
@@ -229,19 +233,19 @@
         <div class="stats-grid">
             <div class="stat-card">
                 <h3>Total Leads</h3>
-                <div class="value" id="totalLeads">0</div>
+                <div class="stat-value">0</div>
             </div>
             <div class="stat-card">
                 <h3>Interested</h3>
-                <div class="value" id="interestedCount">0</div>
+                <div class="stat-value">0</div>
             </div>
             <div class="stat-card">
                 <h3>Not Interested</h3>
-                <div class="value" id="notInterestedCount">0</div>
+                <div class="stat-value">0</div>
             </div>
             <div class="stat-card">
                 <h3>In Progress</h3>
-                <div class="value" id="inProgressCount">0</div>
+                <div class="stat-value">0</div>
             </div>
         </div>
 
@@ -296,23 +300,21 @@
     <script>
         let servicesChart = null;
         let statusChart = null;
-        let allData = null;
 
         async function loadAnalytics() {
             try {
-                const response = await axios.get('/api/all-analytics');
-                const data = response.data;
-                allData = data;
+                const response = await fetch('/api/all-analytics');
+                const data = await response.json();
 
                 // Update stats
-                document.getElementById('totalLeads').textContent = data.total_leads;
-                document.getElementById('interestedCount').textContent = data.interested_count;
-                document.getElementById('notInterestedCount').textContent = data.not_interested_count;
-                document.getElementById('inProgressCount').textContent = data.in_progress_count;
+                const values = document.querySelectorAll('.stat-value');
+                values[0].textContent = data.total_leads || 0;
+                values[1].textContent = data.status_distribution?.find(s => s.status?.toUpperCase() === 'INTERESTED')?.count || 0;
+                values[2].textContent = data.status_distribution?.find(s => s.status?.toUpperCase() === 'NOT INTERESTED')?.count || 0;
+                values[3].textContent = data.status_distribution?.find(s => s.status?.toUpperCase() === 'IN PROGRESS')?.count || 0;
 
                 // Populate service dropdown
                 const serviceFilter = document.getElementById('serviceFilter');
-                const currentValue = serviceFilter.value;
                 serviceFilter.innerHTML = '<option value="">All Services</option>';
                 
                 data.all_services.forEach(service => {
@@ -321,24 +323,17 @@
                     option.textContent = `${service.service_name} (${service.count})`;
                     serviceFilter.appendChild(option);
                 });
-                
-                if (currentValue) serviceFilter.value = currentValue;
 
                 // Update services table
-                const servicesHtml = data.all_services.map(s => {
-                    const percentage = ((s.count / data.total_leads) * 100).toFixed(1);
-                    return `<tr><td>${s.service_name}</td><td>${s.count}</td><td>${percentage}%</td></tr>`;
-                }).join('');
-                document.getElementById('servicesTable').innerHTML = servicesHtml || '<tr><td colspan="3">No data</td></tr>';
+                document.getElementById('servicesTable').innerHTML = data.all_services.map(s => 
+                    `<tr><td>${s.service_name}</td><td>${s.count}</td><td>${((s.count / data.total_leads) * 100).toFixed(1)}%</td></tr>`
+                ).join('');
 
                 // Update status table
-                const statusHtml = data.status_distribution.map(s => {
-                    const percentage = ((s.count / data.total_leads) * 100).toFixed(1);
-                    return `<tr><td>${s.status}</td><td>${s.count}</td><td>${percentage}%</td></tr>`;
-                }).join('');
-                document.getElementById('statusTable').innerHTML = statusHtml || '<tr><td colspan="3">No data</td></tr>';
+                document.getElementById('statusTable').innerHTML = data.status_distribution.map(s => 
+                    `<tr><td>${s.status}</td><td>${s.count}</td><td>${((s.count / data.total_leads) * 100).toFixed(1)}%</td></tr>`
+                ).join('');
 
-                // Update charts
                 updateCharts(data);
             } catch (error) {
                 console.error('Error loading analytics:', error);
@@ -360,148 +355,74 @@
                     labels: topServices.map(s => s.service_name),
                     datasets: [{
                         data: topServices.map(s => s.count),
-                        backgroundColor: [
-                            '#667eea', '#764ba2', '#f093fb', '#4facfe', '#00f2fe',
-                            '#43e97b', '#fa709a', '#fee140', '#30cfd0', '#ed4264'
-                        ]
+                        backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#00f2fe', '#43e97b', '#fa709a', '#fee140', '#30cfd0', '#ed4264']
                     }]
                 },
-                options: {
-                    responsive: true,
-                    plugins: { legend: { position: 'bottom' } }
-                }
+                options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
             });
 
             statusChart = new Chart(ctx2, {
                 type: 'bar',
                 data: {
                     labels: data.status_distribution.map(s => s.status),
-                    datasets: [{
-                        label: 'Count',
-                        data: data.status_distribution.map(s => s.count),
-                        backgroundColor: '#667eea'
-                    }]
+                    datasets: [{ label: 'Count', data: data.status_distribution.map(s => s.count), backgroundColor: '#667eea' }]
                 },
-                options: {
-                    responsive: true,
-                    plugins: { legend: { display: false } },
-                    scales: { y: { beginAtZero: true } }
-                }
+                options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
             });
         }
 
         async function rescrapeLeads() {
-            const btn = document.getElementById('rescrapeBtn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Scraping...';
+            document.getElementById('rescrapeBtn').disabled = true;
+            document.getElementById('rescrapeBtn').textContent = '⏳ Scraping...';
 
             try {
-                const response = await axios.post('/api/rescrape');
+                const response = await fetch('/api/rescrape', { method: 'POST' });
+                const data = await response.json();
                 const msgEl = document.getElementById('statusMessage');
-                msgEl.textContent = `✅ ${response.data.message} (Added: ${response.data.inserted}, Duplicates: ${response.data.duplicates})`;
+                msgEl.textContent = `✅ ${data.message}`;
                 msgEl.className = 'status-message success';
 
-                setTimeout(() => {
-                    loadAnalytics();
-                    msgEl.style.display = 'none';
-                }, 2000);
+                setTimeout(() => { loadAnalytics(); msgEl.style.display = 'none'; }, 2000);
             } catch (error) {
-                const msgEl = document.getElementById('statusMessage');
-                msgEl.textContent = '❌ Error: ' + (error.response?.data?.error || error.message);
-                msgEl.className = 'status-message error';
-                console.error('Error:', error);
+                document.getElementById('statusMessage').textContent = '❌ Error: ' + error.message;
+                document.getElementById('statusMessage').className = 'status-message error';
             } finally {
-                btn.disabled = false;
-                btn.textContent = '🔄 Rescrape Leads';
+                document.getElementById('rescrapeBtn').disabled = false;
+                document.getElementById('rescrapeBtn').textContent = '🔄 Rescrape Leads';
             }
         }
 
         async function applyFilters() {
-            const status = document.getElementById('statusFilter')?.value || 'All Status';
-            const service = document.getElementById('serviceFilter')?.value || 'All Services';
-            const dateFrom = document.getElementById('dateFrom')?.value || '';
-            const dateTo = document.getElementById('dateTo')?.value || '';
-        
+            const status = document.getElementById('statusFilter').value || '';
+            const service = document.getElementById('serviceFilter').value || '';
+
             try {
                 let url = '/api/filtered-analytics?';
-                
-                if (status && status !== 'All Status') {
-                    url += `status=${encodeURIComponent(status)}&`;
-                }
-                if (service && service !== 'All Services') {
-                    url += `service=${encodeURIComponent(service)}&`;
-                }
-                if (dateFrom) {
-                    url += `from=${encodeURIComponent(dateFrom)}&`;
-                }
-                if (dateTo) {
-                    url += `to=${encodeURIComponent(dateTo)}&`;
-                }
-        
+                if (status) url += `status=${encodeURIComponent(status)}&`;
+                if (service) url += `service=${encodeURIComponent(service)}&`;
                 url = url.replace(/&$/, '');
-                console.log('📊 Fetching:', url);
-                
+
                 const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const data = await response.json();
-                console.log('✅ Filter data received:', data);
-        
-                // Safely update stat boxes - check if elements exist first
-                const statCards = document.querySelectorAll('.stat-card');
-                if (statCards.length >= 4) {
-                    const totalLead = statCards[0].querySelector('.stat-value');
-                    const interested = statCards[1].querySelector('.stat-value');
-                    const notInterested = statCards[2].querySelector('.stat-value');
-                    const inProgress = statCards[3].querySelector('.stat-value');
-                    
-                    if (totalLead) totalLead.textContent = data.total_leads || 0;
-                    
-                    const interestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'INTERESTED')?.count || 0;
-                    if (interested) interested.textContent = interestedCount;
-                    
-                    const notInterestedCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'NOT INTERESTED')?.count || 0;
-                    if (notInterested) notInterested.textContent = notInterestedCount;
-                    
-                    const inProgressCount = data.status_distribution?.find(s => s.status?.toUpperCase() === 'IN PROGRESS')?.count || 0;
-                    if (inProgress) inProgress.textContent = inProgressCount;
-                }
-        
-                // Update services table
-                const servicesTable = document.querySelector('.services-table tbody');
-                if (servicesTable) {
-                    servicesTable.innerHTML = data.all_services?.map(s => `
-                        <tr>
-                            <td>${s.service_name || 'Unknown'}</td>
-                            <td>${s.count || 0}</td>
-                            <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
-                        </tr>
-                    `).join('') || '<tr><td colspan="3">No data</td></tr>';
-                }
-        
-                // Update status distribution table
-                const statusTable = document.querySelector('.status-table tbody');
-                if (statusTable) {
-                    statusTable.innerHTML = data.status_distribution?.map(s => `
-                        <tr>
-                            <td>${s.status || 'Unknown'}</td>
-                            <td>${s.count || 0}</td>
-                            <td>${data.total_leads > 0 ? ((s.count / data.total_leads) * 100).toFixed(1) : 0}%</td>
-                        </tr>
-                    `).join('') || '<tr><td colspan="3">No data</td></tr>';
-                }
-        
-                console.log('✅ Dashboard updated successfully');
+
+                const values = document.querySelectorAll('.stat-value');
+                values[0].textContent = data.total_leads || 0;
+                values[1].textContent = data.status_distribution?.find(s => s.status?.toUpperCase() === 'INTERESTED')?.count || 0;
+                values[2].textContent = data.status_distribution?.find(s => s.status?.toUpperCase() === 'NOT INTERESTED')?.count || 0;
+                values[3].textContent = data.status_distribution?.find(s => s.status?.toUpperCase() === 'IN PROGRESS')?.count || 0;
+
+                document.getElementById('servicesTable').innerHTML = data.all_services.map(s => 
+                    `<tr><td>${s.service_name}</td><td>${s.count}</td><td>${((s.count / data.total_leads) * 100).toFixed(1)}%</td></tr>`
+                ).join('');
+
+                document.getElementById('statusTable').innerHTML = data.status_distribution.map(s => 
+                    `<tr><td>${s.status}</td><td>${s.count}</td><td>${((s.count / data.total_leads) * 100).toFixed(1)}%</td></tr>`
+                ).join('');
             } catch (error) {
                 console.error('❌ Filter Error:', error);
-                alert(`Error: ${error.message}`);
             }
         }
 
-
-        // Load analytics on page load ONLY
         loadAnalytics();
     </script>
 </body>
