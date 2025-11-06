@@ -30,6 +30,7 @@ def get_all_analytics():
         # Total leads
         cur.execute("SELECT COUNT(*) FROM leads")
         total = cur.fetchone()[0]
+        print(f"📊 DEBUG: Total leads = {total}")
         
         # All services - USE SUB_CATEGORY_NAME
         cur.execute("""
@@ -62,7 +63,7 @@ def get_all_analytics():
         
         conn.close()
         
-        return jsonify({
+        response_data = {
             'total_leads': total,
             'all_services': all_services,
             'status_distribution': status_dist,
@@ -70,8 +71,15 @@ def get_all_analytics():
             'not_interested_count': not_interested,
             'in_progress_count': in_progress,
             'timestamp': str(datetime.now())
-        })
+        }
+        
+        print(f"✅ Returning: {response_data['total_leads']} total leads")
+        return jsonify(response_data)
+        
     except Exception as e:
+        print(f"❌ Error in get_all_analytics: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/filtered-analytics')
@@ -137,6 +145,9 @@ def get_filtered_analytics():
         })
 
     except Exception as e:
+        print(f"❌ Error in get_filtered_analytics: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/rescrape', methods=['POST'])
@@ -174,7 +185,6 @@ def rescrape_leads():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e), 'status': 'error'}), 500
-
 
 @app.route('/api/update-analytics', methods=['POST'])
 def update_analytics():
