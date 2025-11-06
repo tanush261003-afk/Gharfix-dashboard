@@ -1,176 +1,115 @@
-"""
-Bellevie Scraper Module
-=======================
-Handles Bellevie API communication and lead fetching
-"""
-
 import requests
-import time
-import csv
 import json
-from datetime import datetime, timedelta
-from config import BELLEVIE_AUTH_COOKIE
+import csv
+from datetime import datetime
 
-class BellevieScraper:
-    def __init__(self):
-        """Initialize scraper with authentication"""
-        self.base_url = "https://bellevie.life/dapi/marketplace/order-leads/list"
-        self.auth_cookie = BELLEVIE_AUTH_COOKIE
+class LeadScraper:
+    def __init__(self, base_url='https://app.bellevie.in'):
+        self.base_url = base_url
         self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:137.0) Gecko/20100101 Firefox/137.0',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Origin': 'https://brand.bellevie.life',
-            'Referer': 'https://brand.bellevie.life/',
-        })
-        # Set authentication cookie
-        self.session.cookies.set('bGH_6fJF77c', self.auth_cookie, domain='bellevie.life')
-    
-    def fetch_page(self, page_number, page_size=100):
-        """Fetch one page of leads from API"""
-        try:
-            form_data = {
-                'pageNumber': str(page_number),
-                'pageSize': str(page_size)
-            }
-            response = self.session.post(self.base_url, data=form_data, timeout=30)
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 401:
-                raise Exception("❌ Authentication failed! Cookie expired or invalid!")
-            else:
-                raise Exception(f"HTTP {response.status_code}: {response.text}")
-        except Exception as e:
-            raise Exception(f"Error fetching page {page_number}: {e}")
-    
-    def flatten_services_data(self, lead):
-        """Extract nested services data and flatten it"""
-        # Extract services object if it exists
-        services = lead.get('services', {})
-        if isinstance(services, dict):
-            lead['serviceId'] = services.get('serviceId')
-            lead['subCategoryId'] = services.get('subCategoryId')
-            lead['categoryId'] = services.get('categoryId')
-            lead['serviceName'] = services.get('serviceName')
-            lead['categoryName'] = services.get('categoryName')
-            lead['subCategoryName'] = services.get('subCategoryName')
-            lead['rateCardName'] = services.get('rateCardName')
-        
-        # Remove the nested services object
-        if 'services' in lead:
-            del lead['services']
-        
-        return lead
-    
-    def fetch_all_leads(self):
-        """Fetch ALL leads from Bellevie with pagination"""
-        print(f"\n{'='*60}")
-        print(f"🔄 FETCHING ALL LEADS FROM BELLEVIE")
-        print(f"{'='*60}")
-        
+
+    def fetch_all_leads(self, max_pages=1000):
+        """Fetch all leads from Bellevie API"""
         all_leads = []
         page = 1
-        page_size = 100
         
-        while True:
+        print("="*60)
+        print("🔄 FETCHING ALL LEADS FROM BELLEVIE")
+        print("="*60)
+        
+        while page <= max_pages:
             try:
-                print(f"📄 Fetching page {page}...", end='')
-                data = self.fetch_page(page, page_size=page_size)
+                url = f"{self.base_url}/api/leads?page={page}&limit=100"
+                response = self.session.get(url, timeout=15)
                 
-                if not data or 'data' not in data:
-                    print(" ❌ No data")
+                if response.status_code != 200:
                     break
                 
-                leads = data.get('data', {}).get('data', [])
+                data = response.json()
+                leads = data.get('leads', [])
+                
                 if not leads:
-                    print(f" ✓ Done! (Empty page)")
+                    print(f"📄 Fetching page {page}... ✓ Done! (Empty page)")
                     break
-                
-                # Flatten services data for each lead
-                leads = [self.flatten_services_data(lead) for lead in leads]
                 
                 all_leads.extend(leads)
-                print(f" ✓ {len(leads)} leads (Total: {len(all_leads)})")
-                
+                print(f"📄 Fetching page {page}... ✓ {len(leads)} leads (Total: {len(all_leads)})")
                 page += 1
-                time.sleep(0.3)
                 
             except Exception as e:
-                print(f" ❌ Error: {e}")
+                print(f"⚠️ Error fetching page {page}: {e}")
                 break
         
-        print(f"\n✅ TOTAL LEADS FETCHED: {len(all_leads)}")
+        print(f"\n✅ TOTAL LEADS FETCHED: {len(all_leads)}\n")
         return all_leads
-    
-    def fetch_new_leads(self, hours=0.2):
-        """Fetch new leads from last N hours"""
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Checking for new leads (last {hours}h)...")
-        
-        # Fetch first few pages (new leads are at top)
-        all_leads = []
-        for page in range(1, 4):
-            try:
-                data = self.fetch_page(page, page_size=100)
-                if not data or 'data' not in data:
-                    break
-                leads = data.get('data', {}).get('data', [])
-                if not leads:
-                    break
-                # Flatten services data
-                leads = [self.flatten_services_data(lead) for lead in leads]
-                all_leads.extend(leads)
-                time.sleep(0.5)
-            except Exception as e:
-                print(f"Error on page {page}: {e}")
-                break
-        
-        # Filter to only leads from last N hours
-        cutoff_time = datetime.now() - timedelta(hours=hours)
-        cutoff_ms = int(cutoff_time.timestamp() * 1000)
-        
-        new_leads = [
-            lead for lead in all_leads
-            if lead.get('submittedAt', 0) >= cutoff_ms
-        ]
-        
-        print(f"Found {len(new_leads)} new leads")
-        return new_leads
-    
+
     def export_to_csv(self, leads, filename='all_leads.csv'):
-        """Export leads to CSV"""
+        """Export leads to CSV - SAFE VERSION"""
         if not leads:
-            print("No leads to export")
+            print(f"⚠️ No leads to export to {filename}")
             return
         
         try:
-            keys = leads[0].keys()
+            # Define safe fields (exclude problematic ones)
+            fieldnames = [
+                'customerId', 'firstName', 'lastName', 'mobileNo', 'email',
+                'comment', 'vendorId', 'vendorName', 'rateCardName',
+                'categoryId', 'subCategoryId', 'serviceId', 'serviceName',
+                'categoryName', 'subCategoryName', 'leadDoubleAmount',
+                'packageType', 'status', 'updatedAt', 'submittedAt'
+            ]
+            
             with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=keys)
+                writer = csv.DictWriter(f, fieldnames=fieldnames, restval='', extrasaction='ignore')
                 writer.writeheader()
-                writer.writerows(leads)
-            print(f"✓ Exported {len(leads)} leads to {filename}")
+                
+                for lead in leads:
+                    # Create a filtered copy with only safe fields
+                    safe_lead = {}
+                    for field in fieldnames:
+                        value = lead.get(field, '')
+                        # Convert None to empty string
+                        safe_lead[field] = '' if value is None else str(value)
+                    
+                    writer.writerow(safe_lead)
+            
+            print(f"✅ Exported {len(leads)} leads to {filename}")
+            
         except Exception as e:
-            print(f"Error exporting CSV: {e}")
-    
+            print(f"❌ CSV export error: {e}")
+            import traceback
+            traceback.print_exc()
+
     def export_to_json(self, leads, filename='all_leads.json'):
-        """Export leads to JSON - remove null values"""
+        """Export leads to JSON"""
         if not leads:
-            print("No leads to export")
+            print(f"⚠️ No leads to export to {filename}")
             return
         
         try:
-            # Remove null values from each lead
-            clean_leads = []
+            # Safe fields only
+            fieldnames = [
+                'customerId', 'firstName', 'lastName', 'mobileNo', 'email',
+                'comment', 'vendorId', 'vendorName', 'rateCardName',
+                'categoryId', 'subCategoryId', 'serviceId', 'serviceName',
+                'categoryName', 'subCategoryName', 'leadDoubleAmount',
+                'packageType', 'status', 'updatedAt', 'submittedAt'
+            ]
+            
+            safe_leads = []
             for lead in leads:
-                clean_lead = {k: v for k, v in lead.items() if v is not None}
-                clean_leads.append(clean_lead)
+                safe_lead = {field: lead.get(field, '') for field in fieldnames}
+                safe_leads.append(safe_lead)
             
             with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(clean_leads, f, indent=2, ensure_ascii=False, default=str)
-            print(f"✓ Exported {len(leads)} leads to {filename} (null values removed)")
+                json.dump(safe_leads, f, indent=2, ensure_ascii=False, default=str)
+            
+            print(f"✅ Exported {len(leads)} leads to {filename}")
+            
         except Exception as e:
-            print(f"Error exporting JSON: {e}")
+            print(f"❌ JSON export error: {e}")
+            import traceback
+            traceback.print_exc()
 
 # Create global instance
-scraper = BellevieScraper()
+scraper = LeadScraper()
