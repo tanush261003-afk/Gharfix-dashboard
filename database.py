@@ -1,18 +1,39 @@
-import psycopg as psycopg2
+import psycopg
+import os
 
 class Database:
     def __init__(self):
-        from config import DATABASE
-        self.config = DATABASE
+        # Use DATABASE_URL from environment (Neon in production, localhost in dev)
+        db_url = os.getenv("DATABASE_URL")
+        
+        if not db_url:
+            # Fallback for local development
+            from config import DATABASE
+            self.db_url = None
+            self.config = DATABASE
+        else:
+            self.db_url = db_url
+            self.config = None
     
     def _get_connection(self):
-        return psycopg2.connect(
-            host=self.config['host'],
-            port=self.config['port'],
-            dbname=self.config['database'],
-            user=self.config['user'],
-            password=self.config['password']
-        )
+        """Create connection using DATABASE_URL or fallback config"""
+        try:
+            if self.db_url:
+                # Use Neon connection string (production)
+                return psycopg.connect(self.db_url, autocommit=True)
+            else:
+                # Use local config (development)
+                return psycopg.connect(
+                    host=self.config['host'],
+                    port=self.config['port'],
+                    dbname=self.config['database'],
+                    user=self.config['user'],
+                    password=self.config['password'],
+                    autocommit=True
+                )
+        except Exception as e:
+            print(f"❌ Database connection error: {e}")
+            raise
     
     def initialize_schema(self):
         conn = self._get_connection()
@@ -50,7 +71,7 @@ class Database:
         print("✓ Database schema initialized")
     
     def insert_leads(self, leads):
-        """INSERT LEADS - READS FLATTENED camelCase KEYS"""
+        """INSERT LEADS"""
         if not leads:
             return {'inserted': 0, 'duplicates': 0}
         conn = self._get_connection()
@@ -60,7 +81,6 @@ class Database:
         
         for lead in leads:
             try:
-                # DIRECTLY READ FLATTENED camelCase KEYS
                 cur.execute("""
                     INSERT INTO leads (
                         customer_id, first_name, last_name, mobile_no, email,
@@ -82,13 +102,13 @@ class Database:
                     lead.get('comment'),
                     lead.get('vendorId'),
                     lead.get('vendorName'),
-                    lead.get('rateCardName'),  # camelCase
-                    lead.get('categoryId'),     # camelCase
-                    lead.get('subCategoryId'),  # camelCase
-                    lead.get('serviceId'),      # camelCase
-                    lead.get('serviceName'),    # camelCase
-                    lead.get('categoryName'),   # camelCase
-                    lead.get('subCategoryName'), # camelCase ← THIS IS THE KEY!
+                    lead.get('rateCardName'),
+                    lead.get('categoryId'),
+                    lead.get('subCategoryId'),
+                    lead.get('serviceId'),
+                    lead.get('serviceName'),
+                    lead.get('categoryName'),
+                    lead.get('subCategoryName'),
                     lead.get('leadDoubleAmount'),
                     lead.get('packageType'),
                     lead.get('status'),
@@ -126,7 +146,7 @@ class Database:
         """)
         status_dist = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
         
-        # Top services - USE SUB_CATEGORY_NAME
+        # Top services
         cur.execute("""
             SELECT 
                 COALESCE(sub_category_name, 'Other') as service, 
