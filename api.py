@@ -164,14 +164,7 @@ def rescrape_leads():
         result = db.insert_leads(leads)
         print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
         
-        # Export to files
-        try:
-            print("📁 Exporting to CSV...")
-            scraper.export_to_csv(leads, 'all_leads.csv')
-            print("✅ CSV exported successfully")
-        except Exception as e:
-            print(f"⚠️ CSV export error: {e}")
-        
+        # Export to JSON only (CSV uses too much memory on Render)
         try:
             print("📁 Exporting to JSON...")
             scraper.export_to_json(leads, 'all_leads.json')
@@ -192,6 +185,7 @@ def rescrape_leads():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e), 'status': 'error'}), 500
+
 
 # ==================== DOWNLOAD ROUTES (SINGLE SET ONLY) ====================
 
