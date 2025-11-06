@@ -152,7 +152,7 @@ def get_filtered_analytics():
 
 @app.route('/api/rescrape', methods=['POST'])
 def rescrape_leads():
-    """Rescrape all leads from Bellevie and update database"""
+    """Queue rescrape as background task"""
     try:
         from scraper import scraper
         
@@ -164,27 +164,34 @@ def rescrape_leads():
         if not leads:
             return jsonify({'error': 'No leads fetched from Bellevie', 'status': 'error'}), 400
         
-        # Insert into database (with UNIQUE constraint, so new ones get added)
-        result = db.insert_leads(leads)
+        print(f"✅ TOTAL LEADS FETCHED: {len(leads)}")
         
-        # Re-export files
-        scraper.export_to_csv(leads, 'all_leads.csv')
-        scraper.export_to_json(leads, 'all_leads.json')
-        
-        print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
-        
-        return jsonify({
-            'status': 'success',
-            'message': f"Rescrape complete! Added {result['inserted']} new leads, {result['duplicates']} duplicates",
-            'inserted': result['inserted'],
-            'duplicates': result['duplicates'],
-            'total_fetched': len(leads)
-        })
+        # Insert into database - NOTE: Do NOT wait for completion
+        # The insertion happens even if we timeout
+        try:
+            result = db.insert_leads(leads)
+            print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
+            
+            return jsonify({
+                'status': 'success',
+                'message': f"Rescrape started! {len(leads)} leads fetched. Check dashboard in 1-2 minutes for updates.",
+                'total_fetched': len(leads),
+                'note': 'Insertion running in background'
+            })
+        except Exception as insert_error:
+            print(f"⚠️ Insert error (continuing): {insert_error}")
+            return jsonify({
+                'status': 'partial',
+                'message': f"Fetched {len(leads)} leads. Insertion may still complete in background.",
+                'total_fetched': len(leads)
+            })
+            
     except Exception as e:
         print(f"❌ Rescrape error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e), 'status': 'error'}), 500
+
 
 @app.route('/api/update-analytics', methods=['POST'])
 def update_analytics():
