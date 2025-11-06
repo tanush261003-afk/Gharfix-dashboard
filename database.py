@@ -71,16 +71,22 @@ class Database:
         print("✓ Database schema initialized")
     
     def insert_leads(self, leads):
-        """INSERT LEADS"""
-        if not leads:
-            return {'inserted': 0, 'duplicates': 0}
-        conn = self._get_connection()
-        cur = conn.cursor()
-        inserted = 0
-        duplicates = 0
+    """INSERT LEADS - BATCH INSERTS FOR SPEED"""
+    if not leads:
+        return {'inserted': 0, 'duplicates': 0}
+    
+    conn = self._get_connection()
+    cur = conn.cursor()
+    inserted = 0
+    duplicates = 0
+    
+    # Insert in batches of 100
+    batch_size = 100
+    for i in range(0, len(leads), batch_size):
+        batch = leads[i:i+batch_size]
         
-        for lead in leads:
-            try:
+        try:
+            for lead in batch:
                 cur.execute("""
                     INSERT INTO leads (
                         customer_id, first_name, last_name, mobile_no, email,
@@ -119,14 +125,20 @@ class Database:
                     inserted += 1
                 else:
                     duplicates += 1
-            except Exception as e:
-                print(f"Error inserting lead: {e}")
-                duplicates += 1
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {'inserted': inserted, 'duplicates': duplicates}
+            
+            # Commit every 100 records
+            conn.commit()
+            print(f"✅ Batch {i//batch_size + 1}: Inserted {inserted} leads")
+            
+        except Exception as e:
+            print(f"Error in batch: {e}")
+            conn.rollback()
+            duplicates += len(batch)
+    
+    cur.close()
+    conn.close()
+    return {'inserted': inserted, 'duplicates': duplicates}
+
     
     def get_analytics(self):
         """Get all-time analytics"""
