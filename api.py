@@ -178,25 +178,32 @@ def rescrape_leads():
         
         print(f"✅ TOTAL LEADS FETCHED: {len(leads)}")
         
-        # Insert into database - NOTE: Do NOT wait for completion
-        # The insertion happens even if we timeout
+        # Insert into database
+        result = db.insert_leads(leads)
+        print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
+        
+        # Export to files (create them even if empty)
         try:
-            result = db.insert_leads(leads)
-            print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
-            
-            return jsonify({
-                'status': 'success',
-                'message': f"Rescrape started! {len(leads)} leads fetched. Check dashboard in 1-2 minutes for updates.",
-                'total_fetched': len(leads),
-                'note': 'Insertion running in background'
-            })
-        except Exception as insert_error:
-            print(f"⚠️ Insert error (continuing): {insert_error}")
-            return jsonify({
-                'status': 'partial',
-                'message': f"Fetched {len(leads)} leads. Insertion may still complete in background.",
-                'total_fetched': len(leads)
-            })
+            print("📁 Exporting to CSV...")
+            scraper.export_to_csv(leads, 'all_leads.csv')
+            print("✅ CSV exported successfully")
+        except Exception as e:
+            print(f"⚠️ CSV export error: {e}")
+        
+        try:
+            print("📁 Exporting to JSON...")
+            scraper.export_to_json(leads, 'all_leads.json')
+            print("✅ JSON exported successfully")
+        except Exception as e:
+            print(f"⚠️ JSON export error: {e}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f"Rescrape complete! {len(leads)} leads fetched. {result['inserted']} new, {result['duplicates']} duplicates",
+            'total_fetched': len(leads),
+            'inserted': result['inserted'],
+            'duplicates': result['duplicates']
+        })
             
     except Exception as e:
         print(f"❌ Rescrape error: {e}")
@@ -257,6 +264,37 @@ def download_json():
                         download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+        
+@app.route('/api/download/csv')
+def download_csv():
+    """Download all leads as CSV"""
+    try:
+        if not os.path.exists('all_leads.csv'):
+            return jsonify({'error': 'CSV file not found. Please run rescrape first.'}), 404
+        
+        return send_file('all_leads.csv', 
+                        mimetype='text/csv',
+                        as_attachment=True,
+                        download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+    except Exception as e:
+        print(f"❌ CSV download error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download/json')
+def download_json():
+    """Download all leads as JSON"""
+    try:
+        if not os.path.exists('all_leads.json'):
+            return jsonify({'error': 'JSON file not found. Please run rescrape first.'}), 404
+        
+        return send_file('all_leads.json',
+                        mimetype='application/json',
+                        as_attachment=True,
+                        download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+    except Exception as e:
+        print(f"❌ JSON download error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     print(f"\n{'='*60}\n🚀 Advanced Analytics API\n{'='*60}")
