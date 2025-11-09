@@ -43,6 +43,53 @@ class LeadScraper:
         print(f"\n✅ TOTAL LEADS FETCHED: {len(all_leads)}\n")
         return all_leads
 
+    def fetch_new_leads(self, start_offset=0, max_pages=1000):
+        """Fetch ONLY new leads after start_offset"""
+        new_leads = []
+        page = 1
+        leads_found = 0
+        
+        print("="*60)
+        print(f"🔄 FETCHING NEW LEADS (Starting from offset: {start_offset})")
+        print("="*60)
+        
+        while page <= max_pages:
+            try:
+                url = f"{self.base_url}/api/leads?page={page}&limit=100"
+                response = self.session.get(url, timeout=15)
+                
+                if response.status_code != 200:
+                    break
+                
+                data = response.json()
+                leads = data.get('leads', [])
+                
+                if not leads:
+                    print(f"📄 Page {page}... ✓ Done! (Empty page)")
+                    break
+                
+                leads_found += len(leads)
+                
+                # Only keep leads after the offset
+                if leads_found > start_offset:
+                    # Calculate how many from this page to keep
+                    skip_count = max(0, start_offset - (leads_found - len(leads)))
+                    leads_to_add = leads[skip_count:]
+                    new_leads.extend(leads_to_add)
+                    
+                    print(f"📄 Page {page}... ✓ {len(leads)} leads (New: {len(leads_to_add)}, Total new: {len(new_leads)})")
+                else:
+                    print(f"📄 Page {page}... ⏭️ Skipped (already in DB)")
+                
+                page += 1
+                
+            except Exception as e:
+                print(f"⚠️ Error fetching page {page}: {e}")
+                break
+        
+        print(f"\n✅ NEW LEADS FOUND: {len(new_leads)}\n")
+        return new_leads
+
     def export_to_csv(self, leads, filename='all_leads.csv'):
         """Export leads to CSV - SAFE VERSION"""
         if not leads:
