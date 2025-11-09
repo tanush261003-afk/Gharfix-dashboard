@@ -1,8 +1,6 @@
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from datetime import datetime
-import redis
-import json
 import os
 from database import db
 
@@ -146,36 +144,43 @@ def get_filtered_analytics():
 
 @app.route('/api/rescrape', methods=['POST'])
 def rescrape_leads():
-    """Queue rescrape as background task"""
+    """Rescrape ONLY new leads from last saved point"""
     try:
         from scraper import scraper
         
-        print("🔄 Starting rescrape...")
+        print("🔄 Starting incremental rescrape...")
         
-        # Fetch ALL leads from Bellevue
-        leads = scraper.fetch_all_leads()
+        # Get last lead count
+        conn = db._get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM leads")
+        last_count = cur.fetchone()[0]
+        conn.close()
         
-        if not leads:
-            return jsonify({'error': 'No leads fetched from Bellevue', 'status': 'error'}), 400
+        print(f"📊 Current database has: {last_count} leads")
         
-        print(f"✅ TOTAL LEADS FETCHED: {len(leads)}")
+        # Fetch ONLY new leads from Bellevie
+        new_leads = scraper.fetch_new_leads(last_count)
+        
+        if not new_leads:
+            return jsonify({
+                'status': 'success',
+                'message': '✅ No new leads found',
+                'total_fetched': 0,
+                'inserted': 0,
+                'duplicates': 0
+            }), 200
+        
+        print(f"✅ NEW LEADS FETCHED: {len(new_leads)}")
         
         # Insert into database
-        result = db.insert_leads(leads)
+        result = db.insert_leads(new_leads)
         print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
-        
-        # Export to JSON only (CSV uses too much memory on Render)
-        try:
-            print("📁 Exporting to JSON...")
-            scraper.export_to_json(leads, 'all_leads.json')
-            print("✅ JSON exported successfully")
-        except Exception as e:
-            print(f"⚠️ JSON export error: {e}")
         
         return jsonify({
             'status': 'success',
-            'message': f"Rescrape complete! {len(leads)} leads fetched. {result['inserted']} new, {result['duplicates']} duplicates",
-            'total_fetched': len(leads),
+            'message': f"✅ Rescrape complete! {len(new_leads)} new leads checked. {result['inserted']} inserted, {result['duplicates']} duplicates",
+            'total_fetched': len(new_leads),
             'inserted': result['inserted'],
             'duplicates': result['duplicates']
         })
@@ -184,32 +189,20 @@ def rescrape_leads():
         print(f"❌ Rescrape error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e), 'status': 'error'}), 500
+        return jsonify({
+            'status': 'error',
+            'message': f"❌ Error: {str(e)}",
+            'error': str(e)
+        }), 400
 
-
-# ==================== DOWNLOAD ROUTES (SINGLE SET ONLY) ====================
-
-@app.route('/api/download/csv')
-def download_csv():
-    """Download all leads as CSV"""
-    try:
-        if not os.path.exists('all_leads.csv'):
-            return jsonify({'error': 'CSV file not found. Please run rescrape first.'}), 404
-        
-        return send_file('all_leads.csv', 
-                        mimetype='text/csv',
-                        as_attachment=True,
-                        download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    except Exception as e:
-        print(f"❌ CSV download error: {e}")
-        return jsonify({'error': str(e)}), 500
+# ==================== DOWNLOAD ROUTES ====================
 
 @app.route('/api/download/json')
 def download_json():
     """Download all leads as JSON"""
     try:
         if not os.path.exists('all_leads.json'):
-            return jsonify({'error': 'JSON file not found. Please run rescrape first.'}), 404
+            return jsonify({'error': 'JSON file not found. Please rescrape first.'}), 404
         
         return send_file('all_leads.json',
                         mimetype='application/json',
