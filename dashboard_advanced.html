@@ -71,14 +71,6 @@
             background: #764ba2;
         }
 
-        .controls button.success {
-            background: #10b981;
-        }
-
-        .controls button.success:hover {
-            background: #059669;
-        }
-
         .controls button.rescrape {
             background: #3b82f6;
         }
@@ -98,6 +90,7 @@
             margin-left: auto;
             display: none;
             font-size: 14px;
+            max-width: 400px;
         }
 
         .status-message.success {
@@ -213,20 +206,14 @@
                 <option value="NOT INTERESTED">Not Interested</option>
                 <option value="IN PROGRESS">In Progress</option>
                 <option value="DUPLICATE LEAD">Duplicate Lead</option>
-                <option value="NOT ELIGIBLE">Not Eligible</option>
-                <option value="DEAL FINALIZED">Deal Finalized</option>
-                <option value="DEAL COMPLETED">Deal Completed</option>
             </select>
 
             <select id="serviceFilter">
                 <option value="">All Services</option>
             </select>
 
-            <input type="date" id="dateFrom" placeholder="From Date">
-            <input type="date" id="dateTo" placeholder="To Date">
-
             <button onclick="applyFilters()">🔍 Apply Filters</button>
-            <button class="rescrape" onclick="rescrapeLeads()" id="rescrapeBtn">🔄 Rescrape Leads</button>
+            <button class="rescrape" onclick="rescrapeLeads()" id="rescrapeBtn">🔄 Rescrape New Leads</button>
             <div id="statusMessage" class="status-message"></div>
         </div>
 
@@ -292,7 +279,6 @@
         </div>
 
         <div class="download-buttons">
-            <a href="/api/download/csv" download>📥 Download CSV</a>
             <a href="/api/download/json" download>📥 Download JSON</a>
         </div>
     </div>
@@ -372,23 +358,35 @@
         }
 
         async function rescrapeLeads() {
-            document.getElementById('rescrapeBtn').disabled = true;
-            document.getElementById('rescrapeBtn').textContent = '⏳ Scraping...';
+            const btn = document.getElementById('rescrapeBtn');
+            const msgEl = document.getElementById('statusMessage');
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ Scraping...';
+            msgEl.style.display = 'none';
 
             try {
                 const response = await fetch('/api/rescrape', { method: 'POST' });
                 const data = await response.json();
-                const msgEl = document.getElementById('statusMessage');
-                msgEl.textContent = `✅ ${data.message}`;
-                msgEl.className = 'status-message success';
-
-                setTimeout(() => { loadAnalytics(); msgEl.style.display = 'none'; }, 2000);
+                
+                if (response.ok) {
+                    msgEl.textContent = `✅ ${data.message}`;
+                    msgEl.className = 'status-message success';
+                    
+                    setTimeout(() => { 
+                        loadAnalytics(); 
+                        msgEl.style.display = 'none';
+                    }, 2000);
+                } else {
+                    msgEl.textContent = `❌ ${data.message || data.error}`;
+                    msgEl.className = 'status-message error';
+                }
             } catch (error) {
-                document.getElementById('statusMessage').textContent = '❌ Error: ' + error.message;
-                document.getElementById('statusMessage').className = 'status-message error';
+                msgEl.textContent = '❌ Error: ' + error.message;
+                msgEl.className = 'status-message error';
             } finally {
-                document.getElementById('rescrapeBtn').disabled = false;
-                document.getElementById('rescrapeBtn').textContent = '🔄 Rescrape Leads';
+                btn.disabled = false;
+                btn.textContent = '🔄 Rescrape New Leads';
             }
         }
 
@@ -420,6 +418,7 @@
                 ).join('');
             } catch (error) {
                 console.error('❌ Filter Error:', error);
+                alert('Error applying filters: ' + error.message);
             }
         }
 
