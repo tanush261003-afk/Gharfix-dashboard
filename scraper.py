@@ -1,197 +1,203 @@
+#!/usr/bin/env python3
 """
-Bellevie Scraper Module - SMART INCREMENTAL
-============================================
-
-Features:
-- Saves ALL leads (no duplicate filtering)
-- Auto-detects last lead ID in DB
-- Only scrapes NEW leads from last saved position
-- Cookie-based authentication
+INCREMENTAL Scraper - Only fetches NEW leads since last run
+Efficient for scheduled runs (every hour)
 """
 
 import requests
+import psycopg
 import time
-import csv
-import json
-from datetime import datetime
-from config import BELLEVIE_AUTH_COOKIE
+from collections import Counter
 
-class BellevieScraper:
-    def __init__(self):
-        """Initialize scraper with authentication"""
-        self.base_url = "https://bellevie.life/dapi/marketplace/order-leads/list"
-        self.auth_cookie = BELLEVIE_AUTH_COOKIE
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:137.0) Gecko/20100101 Firefox/137.0',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Origin': 'https://brand.bellevie.life',
-            'Referer': 'https://brand.bellevie.life/',
-        })
-        
-        # Set authentication cookie
-        self.session.cookies.set('bGH_6fJF77c', self.auth_cookie, domain='bellevie.life')
+CONFIG = {
+    'DB_URL': 'postgresql://neondb_owner:npg_4htwi0nmEdNv@ep-sweet-union-ahmpxyfe-pooler.c-3.us-east-1.aws.neon.tech:5432/Gharfix-leads?sslmode=require',
+    'BELLEVIE_API_URL': 'https://bellevie.life/dapi/marketplace/order-leads/list',
+    'COOKIE_FULL': '_ga_M809EE54F9=GS1.1.1736145199.1.0.1736145211.0.0.0; _ga=GA1.1.1433127903.1736145200; bGH_6fJF77c=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbmNyeXB0ZWREYXRhIjoiODEwMDhmMDZjYmIwYjE3Yjk4NmQ3MDQ5ZDI2OTkwMTBmZmM1MTIxMTk5OTU4OGJlZDY5ODQxZTIxYTcyZjY2YjcxZjBjYWFlYmQ2NjVmMWYyZjczMzM0OGU2ZTYyNDhjZjc1YTE2MzI1MjYyNTNmMDU1Mzk4MzQ3YzljYTZmZDdiNDg3M2Q2MTVkYmZhYmEyMTZiZDRhOTY2ZGJlY2JjZWJiZmVmYTgxOWFjMzk2NmY1MDY3ZTRmZDA2YzRlZWY1N2M1NmU3N2QwMDcxNTE0ODQzMGRiYzYwM2IyNTViMWVhZjFmYmE1NjQ0NGZkMTM3M2ZmNzEwYTM2NjllNzUwYjYxMDBiMTE4ZjYyM2ZlMzQ5MzgxMmJiYzJiOGFkMzE4ZDg5ZTBlZTM2NWRjMDY3YmM2NjdiMTRmY2VlOGE2MGRhYzU4NDA3NTY2ZjMxZThiNTBkZGM1Y2E0YTlmOTNjMzBhMzc3Y2Q1NTE5Y2I3MjBhMjEyY2JhMzAxMWI3OTNlMjBiM2I5ODA0Nzg3MWZiOGFiYjI1YWU3MzkwZjhlZmU0NTE2Y2VmNGNiZjQ1MzMyMWRmNjQzZThjMDFhNmRiZDBmNTU1MmUzMmM0MzgwNThiZTNhNTljOGY5YmRmMzgzYTc3ZDY5NDM3YWI2Y2ViMmNhOWM5YjFmZmQ1MjUzNDIiLCJpdiI6IjBweWl1V3h0MXRIbzFnS2giLCJpYXQiOjE3MzYxNDUyNjksImV4cCI6MTc2NzY4MTI2OX0.92SszfLOkDF_rZDvBrNpzHgCKE5_aJau_xg0Ket5R8Q',
+    'PAGE_SIZE': 100,
+    'MAX_PAGES': 10,  # Only check first 10 pages (1000 leads)
+}
 
-    def fetch_page(self, page_number, page_size=100):
-        """Fetch one page of leads from Bellevie API"""
+def main():
+    print("\n" + "="*60)
+    print(f"🔄 INCREMENTAL SCRAPER - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*60 + "\n")
+    
+    start_time = time.time()
+    
+    # Get last lead ID from database
+    last_id = get_last_lead_id()
+    print(f"📊 Last lead ID in DB: {last_id}\n")
+    
+    # Fetch ONLY new leads
+    print("📡 Fetching new leads from Bellevie...")
+    new_leads = fetch_new_leads_only(last_id)
+    print(f"\n✅ New leads found: {len(new_leads)}\n")
+    
+    if len(new_leads) == 0:
+        print("ℹ️  No new leads since last run\n")
+        return
+    
+    # Insert to both tables
+    print("💾 Inserting to database...")
+    result_leads = insert_to_leads_table(new_leads)
+    result_events = insert_to_events_table(new_leads)
+    
+    print(f"   leads table: {result_leads['inserted']} inserted")
+    print(f"   lead_events table: {result_events['inserted']} inserted\n")
+    
+    duration = int(time.time() - start_time)
+    print(f"⏱️  Completed in {duration}s\n")
+
+def get_last_lead_id():
+    try:
+        conn = psycopg.connect(CONFIG['DB_URL'])
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(customer_id) FROM leads")
+        result = cur.fetchone()
+        conn.close()
+        return result[0] if result and result[0] else 0
+    except:
+        return 0
+
+def fetch_new_leads_only(last_id):
+    """Fetch ONLY leads with customer_id > last_id"""
+    new_leads = []
+    page = 1
+    headers = {'Cookie': CONFIG['COOKIE_FULL']}
+    
+    while page <= CONFIG['MAX_PAGES']:
         try:
-            url = f"{self.base_url}?page={page_number}&pageSize={page_size}"
-            print(f"📄 Fetching page {page_number}...")
+            print(f"   Page {page}...", end=' ', flush=True)
+            response = requests.post(
+                CONFIG['BELLEVIE_API_URL'],
+                headers=headers,
+                data={'pageSize': CONFIG['PAGE_SIZE'], 'pageNumber': page},
+                timeout=30
+            )
             
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            leads = data.get('leads', [])
-            
-            print(f"   ✓ Got {len(leads)} leads")
-            return leads
-            
-        except Exception as e:
-            print(f"   ⚠️ Error: {e}")
-            return []
-
-    def fetch_new_leads_only(self, last_lead_id=None):
-        """
-        Fetch ONLY new leads starting from last saved ID
-        
-        Args:
-            last_lead_id: The highest customer_id already in database
-            
-        Returns:
-            List of NEW lead dicts (NOT filtered for duplicates)
-        """
-        new_leads = []
-        page = 1
-        max_pages = 1000
-        found_new = False
-        
-        print(f"\n{'='*70}")
-        print(f"🔄 INCREMENTAL SCRAPE - Starting from ID: {last_lead_id or 'Beginning'}")
-        print(f"{'='*70}\n")
-        
-        while page <= max_pages:
-            leads = self.fetch_page(page)
-            
-            if not leads:
-                print(f"✓ Reached end of data at page {page}\n")
+            if response.status_code != 200:
+                print(f"❌ HTTP {response.status_code}")
                 break
             
-            for lead in leads:
-                lead_id = lead.get('customerId') or lead.get('customer_id')
-                
-                # If we have a last_lead_id, skip until we find leads AFTER it
-                if last_lead_id and lead_id <= last_lead_id:
-                    # Still before our marker, skip
-                    continue
-                
-                # Past the marker - this is NEW
-                found_new = True
-                new_leads.append(lead)
+            result = response.json()
+            if 'data' in result and 'data' in result['data']:
+                leads = result['data']['data']
+            else:
+                print("❌ Bad response")
+                break
             
-            # If we started finding new leads, and now we hit old ones, we're done
-            if found_new and leads and leads[-1].get('customerId', 0) <= last_lead_id:
-                print(f"✓ Finished at page {page}\n")
+            if not leads:
+                print("✓ End")
+                break
+            
+            # Filter for NEW leads only
+            page_new = [l for l in leads if l.get('customerId', 0) > last_id]
+            new_leads.extend(page_new)
+            print(f"✓ {len(page_new)} new")
+            
+            # Stop if no new leads on this page (older leads ahead)
+            if len(page_new) == 0:
+                print("   ℹ️  Reached old leads, stopping")
                 break
             
             page += 1
-            time.sleep(0.5)  # Be nice to the API
-        
-        print(f"{'='*70}")
-        print(f"✅ NEW LEADS FOUND: {len(new_leads)}")
-        print(f"{'='*70}\n")
-        
-        return new_leads
-
-    def fetch_all_leads(self, max_pages=1000):
-        """Fetch ALL leads from scratch (full rescrape)"""
-        all_leads = []
-        page = 1
-        
-        print(f"\n{'='*70}")
-        print(f"🔄 FULL RESCRAPE - Starting from beginning")
-        print(f"{'='*70}\n")
-        
-        while page <= max_pages:
-            leads = self.fetch_page(page)
-            
-            if not leads:
-                print(f"✓ Reached end at page {page}\n")
-                break
-            
-            all_leads.extend(leads)
-            page += 1
-            time.sleep(0.5)
-        
-        print(f"{'='*70}")
-        print(f"✅ TOTAL LEADS FETCHED: {len(all_leads)}")
-        print(f"{'='*70}\n")
-        
-        return all_leads
-
-    def export_to_csv(self, leads, filename='all_leads.csv'):
-        """Export leads to CSV (save ALL leads as-is)"""
-        if not leads:
-            print(f"⚠️ No leads to export to {filename}")
-            return
-        
-        try:
-            fieldnames = [
-                'customerId', 'firstName', 'lastName', 'mobileNo', 'email',
-                'comment', 'vendorId', 'vendorName', 'rateCardName',
-                'categoryId', 'subCategoryId', 'serviceId', 'serviceName',
-                'categoryName', 'subCategoryName', 'leadDoubleAmount',
-                'packageType', 'status', 'updatedAt', 'submittedAt'
-            ]
-            
-            with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames, restval='', extrasaction='ignore')
-                writer.writeheader()
-                
-                for lead in leads:
-                    safe_lead = {}
-                    for field in fieldnames:
-                        value = lead.get(field, '')
-                        safe_lead[field] = '' if value is None else str(value)
-                    writer.writerow(safe_lead)
-            
-            print(f"✅ Exported {len(leads)} leads to {filename}\n")
+            time.sleep(0.2)
             
         except Exception as e:
-            print(f"❌ CSV export error: {e}\n")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ {e}")
+            break
+    
+    return new_leads
 
-    def export_to_json(self, leads, filename='all_leads.json'):
-        """Export leads to JSON (save ALL leads as-is)"""
-        if not leads:
-            print(f"⚠️ No leads to export to {filename}")
-            return
-        
+def insert_to_leads_table(leads):
+    inserted = 0
+    conn = psycopg.connect(CONFIG['DB_URL'])
+    cur = conn.cursor()
+    
+    for lead in leads:
         try:
-            fieldnames = [
-                'customerId', 'firstName', 'lastName', 'mobileNo', 'email',
-                'comment', 'vendorId', 'vendorName', 'rateCardName',
-                'categoryId', 'subCategoryId', 'serviceId', 'serviceName',
-                'categoryName', 'subCategoryName', 'leadDoubleAmount',
-                'packageType', 'status', 'updatedAt', 'submittedAt'
-            ]
-            
-            safe_leads = []
-            for lead in leads:
-                safe_lead = {field: lead.get(field, '') for field in fieldnames}
-                safe_leads.append(safe_lead)
-            
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(safe_leads, f, indent=2, ensure_ascii=False, default=str)
-            
-            print(f"✅ Exported {len(leads)} leads to {filename}\n")
-            
+            services = lead.get('services', {})
+            query = """
+                INSERT INTO leads (
+                    customer_id, first_name, last_name, mobile_no, email,
+                    comment, vendor_id, vendor_name, rate_card_name,
+                    category_id, sub_category_id, service_id, service_name,
+                    category_name, sub_category_name, lead_double_amount,
+                    package_type, status, submitted_at, imported_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+                )
+                ON CONFLICT (customer_id) DO UPDATE SET
+                    status = EXCLUDED.status, updated_at = NOW()
+            """
+            values = (
+                lead.get('customerId'), (lead.get('firstName') or '')[:255],
+                (lead.get('lastName') or '')[:255], (lead.get('mobileNo') or '')[:20],
+                (lead.get('email') or '')[:255], (lead.get('comment') or '')[:1000],
+                lead.get('vendorId'), (lead.get('vendorName') or '')[:255],
+                (services.get('rateCardName') or '')[:255], services.get('categoryId'),
+                services.get('subCategoryId'), services.get('serviceId'),
+                (services.get('serviceName') or '')[:255], (services.get('categoryName') or '')[:255],
+                (services.get('subCategoryName') or '')[:255], lead.get('leadDoubleAmount', False),
+                (lead.get('packageType') or '')[:100], (lead.get('status') or '')[:100],
+                lead.get('submittedAt'),
+            )
+            cur.execute(query, values)
+            conn.commit()
+            inserted += 1
         except Exception as e:
-            print(f"❌ JSON export error: {e}\n")
-            import traceback
-            traceback.print_exc()
+            print(f"   Error: {e}")
+    
+    conn.close()
+    return {'inserted': inserted}
 
-# Create global instance
-scraper = BellevieScraper()
+def insert_to_events_table(leads):
+    inserted = 0
+    conn = psycopg.connect(CONFIG['DB_URL'])
+    cur = conn.cursor()
+    
+    for lead in leads:
+        try:
+            services = lead.get('services', {})
+            event_id = f"{lead.get('customerId')}_{lead.get('submittedAt')}"
+            
+            query = """
+                INSERT INTO lead_events (
+                    event_id, customer_id, first_name, last_name, mobile_no, email,
+                    comment, vendor_id, vendor_name, rate_card_name,
+                    category_id, sub_category_id, service_id, service_name,
+                    category_name, sub_category_name, lead_double_amount,
+                    package_type, status, submitted_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+                ON CONFLICT (event_id) DO NOTHING
+            """
+            values = (
+                event_id, lead.get('customerId'),
+                (lead.get('firstName') or '')[:255], (lead.get('lastName') or '')[:255],
+                (lead.get('mobileNo') or '')[:20], (lead.get('email') or '')[:255],
+                (lead.get('comment') or '')[:1000], lead.get('vendorId'),
+                (lead.get('vendorName') or '')[:255], (services.get('rateCardName') or '')[:255],
+                services.get('categoryId'), services.get('subCategoryId'), services.get('serviceId'),
+                (services.get('serviceName') or '')[:255], (services.get('categoryName') or '')[:255],
+                (services.get('subCategoryName') or '')[:255], lead.get('leadDoubleAmount', False),
+                (lead.get('packageType') or '')[:100], (lead.get('status') or '')[:100],
+                lead.get('submittedAt'),
+            )
+            cur.execute(query, values)
+            conn.commit()
+            inserted += 1
+        except Exception as e:
+            print(f"   Error: {e}")
+    
+    conn.close()
+    return {'inserted': inserted}
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as e:
+        print(f"\n❌ Error: {e}\n")
