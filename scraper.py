@@ -1,103 +1,142 @@
-import requests
-import json
-import csv
-from datetime import datetime
+"""
+Bellevie Scraper Module - SMART INCREMENTAL
+============================================
 
-class LeadScraper:
-    def __init__(self, base_url='https://app.bellevie.in'):
-        self.base_url = base_url
+Features:
+- Saves ALL leads (no duplicate filtering)
+- Auto-detects last lead ID in DB
+- Only scrapes NEW leads from last saved position
+- Cookie-based authentication
+"""
+
+import requests
+import time
+import csv
+import json
+from datetime import datetime
+from config import BELLEVIE_AUTH_COOKIE
+
+class BellevieScraper:
+    def __init__(self):
+        """Initialize scraper with authentication"""
+        self.base_url = "https://bellevie.life/dapi/marketplace/order-leads/list"
+        self.auth_cookie = BELLEVIE_AUTH_COOKIE
         self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:137.0) Gecko/20100101 Firefox/137.0',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Origin': 'https://brand.bellevie.life',
+            'Referer': 'https://brand.bellevie.life/',
+        })
+        
+        # Set authentication cookie
+        self.session.cookies.set('bGH_6fJF77c', self.auth_cookie, domain='bellevie.life')
+
+    def fetch_page(self, page_number, page_size=100):
+        """Fetch one page of leads from Bellevie API"""
+        try:
+            url = f"{self.base_url}?page={page_number}&pageSize={page_size}"
+            print(f"📄 Fetching page {page_number}...")
+            
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            leads = data.get('leads', [])
+            
+            print(f"   ✓ Got {len(leads)} leads")
+            return leads
+            
+        except Exception as e:
+            print(f"   ⚠️ Error: {e}")
+            return []
+
+    def fetch_new_leads_only(self, last_lead_id=None):
+        """
+        Fetch ONLY new leads starting from last saved ID
+        
+        Args:
+            last_lead_id: The highest customer_id already in database
+            
+        Returns:
+            List of NEW lead dicts (NOT filtered for duplicates)
+        """
+        new_leads = []
+        page = 1
+        max_pages = 1000
+        found_new = False
+        
+        print(f"\n{'='*70}")
+        print(f"🔄 INCREMENTAL SCRAPE - Starting from ID: {last_lead_id or 'Beginning'}")
+        print(f"{'='*70}\n")
+        
+        while page <= max_pages:
+            leads = self.fetch_page(page)
+            
+            if not leads:
+                print(f"✓ Reached end of data at page {page}\n")
+                break
+            
+            for lead in leads:
+                lead_id = lead.get('customerId') or lead.get('customer_id')
+                
+                # If we have a last_lead_id, skip until we find leads AFTER it
+                if last_lead_id and lead_id <= last_lead_id:
+                    # Still before our marker, skip
+                    continue
+                
+                # Past the marker - this is NEW
+                found_new = True
+                new_leads.append(lead)
+            
+            # If we started finding new leads, and now we hit old ones, we're done
+            if found_new and leads and leads[-1].get('customerId', 0) <= last_lead_id:
+                print(f"✓ Finished at page {page}\n")
+                break
+            
+            page += 1
+            time.sleep(0.5)  # Be nice to the API
+        
+        print(f"{'='*70}")
+        print(f"✅ NEW LEADS FOUND: {len(new_leads)}")
+        print(f"{'='*70}\n")
+        
+        return new_leads
 
     def fetch_all_leads(self, max_pages=1000):
-        """Fetch all leads from Bellevie API"""
+        """Fetch ALL leads from scratch (full rescrape)"""
         all_leads = []
         page = 1
         
-        print("="*60)
-        print("🔄 FETCHING ALL LEADS FROM BELLEVIE")
-        print("="*60)
+        print(f"\n{'='*70}")
+        print(f"🔄 FULL RESCRAPE - Starting from beginning")
+        print(f"{'='*70}\n")
         
         while page <= max_pages:
-            try:
-                url = f"{self.base_url}/api/leads?page={page}&limit=100"
-                response = self.session.get(url, timeout=15)
-                
-                if response.status_code != 200:
-                    break
-                
-                data = response.json()
-                leads = data.get('leads', [])
-                
-                if not leads:
-                    print(f"📄 Fetching page {page}... ✓ Done! (Empty page)")
-                    break
-                
-                all_leads.extend(leads)
-                print(f"📄 Fetching page {page}... ✓ {len(leads)} leads (Total: {len(all_leads)})")
-                page += 1
-                
-            except Exception as e:
-                print(f"⚠️ Error fetching page {page}: {e}")
+            leads = self.fetch_page(page)
+            
+            if not leads:
+                print(f"✓ Reached end at page {page}\n")
                 break
+            
+            all_leads.extend(leads)
+            page += 1
+            time.sleep(0.5)
         
-        print(f"\n✅ TOTAL LEADS FETCHED: {len(all_leads)}\n")
+        print(f"{'='*70}")
+        print(f"✅ TOTAL LEADS FETCHED: {len(all_leads)}")
+        print(f"{'='*70}\n")
+        
         return all_leads
 
-    def fetch_new_leads(self, start_offset=0, max_pages=1000):
-        """Fetch ONLY new leads after start_offset"""
-        new_leads = []
-        page = 1
-        leads_found = 0
-        
-        print("="*60)
-        print(f"🔄 FETCHING NEW LEADS (Starting from offset: {start_offset})")
-        print("="*60)
-        
-        while page <= max_pages:
-            try:
-                url = f"{self.base_url}/api/leads?page={page}&limit=100"
-                response = self.session.get(url, timeout=15)
-                
-                if response.status_code != 200:
-                    break
-                
-                data = response.json()
-                leads = data.get('leads', [])
-                
-                if not leads:
-                    print(f"📄 Page {page}... ✓ Done! (Empty page)")
-                    break
-                
-                leads_found += len(leads)
-                
-                # Only keep leads after the offset
-                if leads_found > start_offset:
-                    # Calculate how many from this page to keep
-                    skip_count = max(0, start_offset - (leads_found - len(leads)))
-                    leads_to_add = leads[skip_count:]
-                    new_leads.extend(leads_to_add)
-                    
-                    print(f"📄 Page {page}... ✓ {len(leads)} leads (New: {len(leads_to_add)}, Total new: {len(new_leads)})")
-                else:
-                    print(f"📄 Page {page}... ⏭️ Skipped (already in DB)")
-                
-                page += 1
-                
-            except Exception as e:
-                print(f"⚠️ Error fetching page {page}: {e}")
-                break
-        
-        print(f"\n✅ NEW LEADS FOUND: {len(new_leads)}\n")
-        return new_leads
-
     def export_to_csv(self, leads, filename='all_leads.csv'):
-        """Export leads to CSV - SAFE VERSION"""
+        """Export leads to CSV (save ALL leads as-is)"""
         if not leads:
             print(f"⚠️ No leads to export to {filename}")
             return
         
         try:
-            # Define safe fields (exclude problematic ones)
             fieldnames = [
                 'customerId', 'firstName', 'lastName', 'mobileNo', 'email',
                 'comment', 'vendorId', 'vendorName', 'rateCardName',
@@ -111,30 +150,26 @@ class LeadScraper:
                 writer.writeheader()
                 
                 for lead in leads:
-                    # Create a filtered copy with only safe fields
                     safe_lead = {}
                     for field in fieldnames:
                         value = lead.get(field, '')
-                        # Convert None to empty string
                         safe_lead[field] = '' if value is None else str(value)
-                    
                     writer.writerow(safe_lead)
             
-            print(f"✅ Exported {len(leads)} leads to {filename}")
+            print(f"✅ Exported {len(leads)} leads to {filename}\n")
             
         except Exception as e:
-            print(f"❌ CSV export error: {e}")
+            print(f"❌ CSV export error: {e}\n")
             import traceback
             traceback.print_exc()
 
     def export_to_json(self, leads, filename='all_leads.json'):
-        """Export leads to JSON"""
+        """Export leads to JSON (save ALL leads as-is)"""
         if not leads:
             print(f"⚠️ No leads to export to {filename}")
             return
         
         try:
-            # Safe fields only
             fieldnames = [
                 'customerId', 'firstName', 'lastName', 'mobileNo', 'email',
                 'comment', 'vendorId', 'vendorName', 'rateCardName',
@@ -151,12 +186,12 @@ class LeadScraper:
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(safe_leads, f, indent=2, ensure_ascii=False, default=str)
             
-            print(f"✅ Exported {len(leads)} leads to {filename}")
+            print(f"✅ Exported {len(leads)} leads to {filename}\n")
             
         except Exception as e:
-            print(f"❌ JSON export error: {e}")
+            print(f"❌ JSON export error: {e}\n")
             import traceback
             traceback.print_exc()
 
 # Create global instance
-scraper = LeadScraper()
+scraper = BellevieScraper()
