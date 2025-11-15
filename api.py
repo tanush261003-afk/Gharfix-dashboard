@@ -2,248 +2,173 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from datetime import datetime
 import os
-from database import db
-from config import API_HOST, API_PORT, READ_ONLY_MODE, ENABLE_RESCRAPE
+import psycopg
+
+# ============================================================================
+# DIRECT POSTGRESQL DASHBOARD API
+# Reads directly from Neon database (no caching)
+# ============================================================================
 
 app = Flask(__name__)
 CORS(app)
 
-# Initialize database on startup
-try:
-    print("🔄 Initializing database schema...")
-    db.initialize_schema()
-    print("✅ Database schema initialized successfully!")
-except Exception as e:
-    print(f"⚠️ Database initialization: {e}")
+# Database connection
+DATABASE_URL = 'postgresql://neondb_owner:npg_4htwi0nmEdNv@ep-sweet-union-ahmpxyfe-pooler.c-3.us-east-1.aws.neon.tech:5432/Gharfix-leads?sslmode=require'
 
-# ==================== ANALYTICS ROUTES ====================
+def get_db_connection():
+    """Get fresh connection to Neon database"""
+    return psycopg.connect(DATABASE_URL)
+
+# ============================================================================
+# ANALYTICS ENDPOINTS - READ DIRECTLY FROM DB
+# ============================================================================
 
 @app.route('/api/all-analytics')
 def get_all_analytics():
-    """Get all-time analytics with ALL 7 statuses"""
+    """Get all analytics - reads directly from PostgreSQL"""
     try:
-        conn = db._get_connection()
+        conn = get_db_connection()
         cur = conn.cursor()
         
         # Total leads
         cur.execute("SELECT COUNT(*) FROM leads")
         total = cur.fetchone()[0]
-        print(f"📊 DEBUG: Total leads = {total}")
         
         # All services
         cur.execute("""
             SELECT COALESCE(sub_category_name, 'Other') as service, COUNT(*) as count 
             FROM leads 
             WHERE sub_category_name IS NOT NULL AND sub_category_name != ''
-            GROUP BY sub_category_name ORDER BY count DESC LIMIT 15
+            GROUP BY sub_category_name 
+            ORDER BY count DESC 
+            LIMIT 20
         """)
         all_services = [{'service_name': row[0], 'count': row[1]} for row in cur.fetchall()]
         
-        # Status distribution
-        cur.execute("SELECT status, COUNT(*) as count FROM leads GROUP BY status ORDER BY count DESC")
+        # Status distribution (ALL 7 STATUSES)
+        cur.execute("""
+            SELECT status, COUNT(*) as count 
+            FROM leads 
+            GROUP BY status 
+            ORDER BY count DESC
+        """)
         status_dist = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
         
         conn.close()
         
-        print(f"✅ Returning: {total} total leads")
+        print(f"✅ Returned {total} leads with {len(all_services)} services and {len(status_dist)} statuses")
+        
         return jsonify({
             'total_leads': total,
             'all_services': all_services,
             'status_distribution': status_dist,
             'timestamp': str(datetime.now()),
-            'read_only': READ_ONLY_MODE
+            'data_source': 'postgresql'
         })
     except Exception as e:
-        print(f"❌ Error in get_all_analytics: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/filtered-analytics')
 def get_filtered_analytics():
-    """Get filtered analytics"""
-    status = request.args.get('status', '')
-    service = request.args.get('service', '')
-    
+    """Get filtered analytics by status and service"""
     try:
-        conn = db._get_connection()
+        status = request.args.get('status', '').strip()
+        service = request.args.get('service', '').strip()
+        
+        conn = get_db_connection()
         cur = conn.cursor()
         
+        # Build query
         where_conditions = []
-        params = []
         
         if status and status != 'All Status':
-            where_conditions.append("UPPER(status) = UPPER(%s)")
-            params.append(status)
-        if service and service != 'All Services':
-            where_conditions.append("UPPER(sub_category_name) = UPPER(%s)")
-            params.append(service)
+            where_conditions.append(f"UPPER(status) = '{status.upper()}'")
         
-        base_query = "SELECT * FROM leads"
+        if service and service != 'All Services':
+            where_conditions.append(f"UPPER(sub_category_name) = '{service.upper()}'")
+        
+        # Get total count
+        base_query = "SELECT COUNT(*) FROM leads"
         if where_conditions:
             base_query += " WHERE " + " AND ".join(where_conditions)
         
-        print(f"📊 Query: {base_query}")
-        print(f"📊 Params: {params}")
+        cur.execute(base_query)
+        total_leads = cur.fetchone()[0]
         
-        cur.execute(base_query, params)
-        leads = cur.fetchall()
-        total_leads = len(leads)
+        # Get status distribution for filtered results
+        status_query = "SELECT status, COUNT(*) as count FROM leads"
+        if where_conditions:
+            status_query += " WHERE " + " AND ".join(where_conditions)
+        status_query += " GROUP BY status ORDER BY count DESC"
         
-        print(f"📊 Found {total_leads} leads")
+        cur.execute(status_query)
+        status_dist = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
         
-        # Calculate stats from filtered leads
-        status_counts = {}
-        service_counts = {}
+        # Get service distribution for filtered results
+        service_query = """
+            SELECT sub_category_name, COUNT(*) as count 
+            FROM leads 
+            WHERE sub_category_name IS NOT NULL AND sub_category_name != ''
+        """
+        if where_conditions:
+            service_query += " AND " + " AND ".join(where_conditions)
+        service_query += " GROUP BY sub_category_name ORDER BY count DESC LIMIT 20"
         
-        for lead in leads:
-            lead_status = lead[18] if len(lead) > 18 else 'UNKNOWN'
-            status_counts[lead_status] = status_counts.get(lead_status, 0) + 1
-            lead_service = lead[15] if len(lead) > 15 else 'Other'
-            if lead_service:
-                service_counts[lead_service] = service_counts.get(lead_service, 0) + 1
-        
-        status_distribution = [
-            {'status': k, 'count': v} 
-            for k, v in sorted(status_counts.items(), key=lambda x: x[1], reverse=True)
-        ]
-        
-        all_services = [
-            {'service_name': k, 'count': v} 
-            for k, v in sorted(service_counts.items(), key=lambda x: x[1], reverse=True)
-        ]
+        cur.execute(service_query)
+        all_services = [{'service_name': row[0], 'count': row[1]} for row in cur.fetchall()]
         
         conn.close()
-        
-        print(f"✅ Status dist: {status_distribution}")
-        print(f"✅ Services: {all_services}")
         
         return jsonify({
             'total_leads': total_leads,
             'all_services': all_services,
-            'status_distribution': status_distribution
+            'status_distribution': status_dist
         })
     except Exception as e:
-        print(f"❌ Error in get_filtered_analytics: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e), 'status': 'error'}), 500
-
-@app.route('/api/rescrape', methods=['POST'])
-def rescrape_leads():
-    """
-    Smart rescrape - ONLY fetches new leads from last saved ID
-    Disabled on Render, works locally
-    """
-    if READ_ONLY_MODE or not ENABLE_RESCRAPE:
-        return jsonify({
-            'status': 'info',
-            'message': '📡 Dashboard is in read-only mode. Data updates automatically from your local machine.',
-            'total_fetched': 0,
-            'inserted': 0,
-            'duplicates': 0
-        }), 200
-    
-    try:
-        from scraper import scraper
-        
-        print("🔄 Starting SMART incremental rescrape...")
-        
-        # Get last lead ID
-        last_id = db.get_last_lead_id()
-        print(f"📊 Last lead ID in DB: {last_id}")
-        
-        # Fetch ONLY new leads
-        new_leads = scraper.fetch_new_leads_only(last_lead_id=last_id)
-        
-        if not new_leads:
-            return jsonify({
-                'status': 'success',
-                'message': '✅ No new leads found since last scrape',
-                'total_fetched': 0,
-                'inserted': 0,
-                'duplicates': 0
-            }), 200
-        
-        print(f"✅ NEW LEADS FETCHED: {len(new_leads)}")
-        
-        # Insert into database (NO DUPLICATE FILTERING)
-        result = db.insert_leads(new_leads)
-        
-        # Export files
-        scraper.export_to_csv(new_leads, 'new_leads.csv')
-        scraper.export_to_json(new_leads, 'new_leads.json')
-        
-        print(f"✅ Rescrape complete!")
-        
-        return jsonify({
-            'status': 'success',
-            'message': f"✅ Rescrape complete! {result['inserted']} new leads added",
-            'total_fetched': len(new_leads),
-            'inserted': result['inserted'],
-            'duplicates': result['duplicates']
-        })
-    except Exception as e:
-        print(f"❌ Rescrape error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'status': 'error',
-            'message': f"❌ Error: {str(e)}",
-            'error': str(e)
-        }), 400
-
-# ==================== DOWNLOAD ROUTES ====================
-
-@app.route('/api/download/csv')
-def download_csv():
-    """Download leads as CSV"""
-    try:
-        if not os.path.exists('new_leads.csv'):
-            return jsonify({'error': 'CSV file not found. Please rescrape first.'}), 404
-        return send_file('new_leads.csv', 
-                        mimetype='text/csv',
-                        as_attachment=True,
-                        download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
-    except Exception as e:
-        print(f"❌ CSV download error: {e}")
+        print(f"❌ Error: {e}")
         return jsonify({'error': str(e)}), 500
-
-@app.route('/api/download/json')
-def download_json():
-    """Download leads as JSON"""
-    try:
-        if not os.path.exists('new_leads.json'):
-            return jsonify({'error': 'JSON file not found. Please rescrape first.'}), 404
-        return send_file('new_leads.json',
-                        mimetype='application/json',
-                        as_attachment=True,
-                        download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
-    except Exception as e:
-        print(f"❌ JSON download error: {e}")
-        return jsonify({'error': str(e)}), 500
-
-# ==================== UTILITY ROUTES ====================
 
 @app.route('/api/system-status')
 def system_status():
-    """Show system status"""
+    """Get system status"""
     try:
-        total = db.get_leads_count()
-        last_id = db.get_last_lead_id()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Get stats
+        cur.execute("SELECT COUNT(*) FROM leads")
+        total = cur.fetchone()[0]
+        
+        cur.execute("SELECT MAX(customer_id) FROM leads")
+        max_id = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(DISTINCT status) FROM leads")
+        status_count = cur.fetchone()[0]
+        
+        conn.close()
         
         return jsonify({
             'status': 'online',
+            'database': 'Connected - Neon PostgreSQL',
             'total_leads': total,
-            'last_lead_id': last_id,
-            'mode': 'Read-Only' if READ_ONLY_MODE else 'Full Access',
-            'database': 'Connected'
+            'max_lead_id': max_id,
+            'unique_statuses': status_count,
+            'timestamp': str(datetime.now())
         })
     except Exception as e:
-        return jsonify({'status': 'error', 'error': str(e)}), 500
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+# ============================================================================
+# DASHBOARD ROUTES
+# ============================================================================
 
 @app.route('/dashboard')
 def dashboard():
+    """Serve the dashboard HTML"""
     try:
         return send_file('dashboard_advanced.html')
     except:
@@ -251,13 +176,46 @@ def dashboard():
 
 @app.route('/')
 def index():
-    mode = "Read-Only Dashboard" if READ_ONLY_MODE else "Full Access"
-    return jsonify({"status": f"Gharfix Analytics API - {mode}"})
+    return jsonify({
+        "status": "Gharfix Analytics API - Direct PostgreSQL",
+        "version": "2.0",
+        "data_source": "Neon PostgreSQL",
+        "dashboard": "/dashboard"
+    })
+
+# ============================================================================
+# ERROR HANDLERS
+# ============================================================================
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(500)
+def server_error(error):
+    return jsonify({'error': 'Server error'}), 500
+
+# ============================================================================
+# STARTUP
+# ============================================================================
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print(f"🚀 Gharfix Analytics API")
-    print(f"   Mode: {'Read-Only' if READ_ONLY_MODE else 'Full Access'}")
-    print(f"   Dashboard: http://localhost:{API_PORT}/dashboard")
+    print("🚀 Gharfix Analytics API - Direct PostgreSQL")
+    print("   Database: Neon (Read-only)")
+    print("   Data source: Google Apps Script Scraper")
+    print("   Dashboard: http://localhost:10000/dashboard")
     print("="*60 + "\n")
-    app.run(host=API_HOST, port=API_PORT, debug=False)
+    
+    # Test database connection
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM leads")
+        count = cur.fetchone()[0]
+        conn.close()
+        print(f"✅ Database connected! {count} leads in system.\n")
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}\n")
+    
+    app.run(host='0.0.0.0', port=10000, debug=False)
