@@ -36,15 +36,20 @@ BELLEVIE_AUTH_COOKIE = os.getenv(
 # REDIS (optional - only if using caching)
 # ============================================================================
 
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
-redis_url = urlparse(REDIS_URL)
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
 
-REDIS = {
-    'host': redis_url.hostname or 'localhost',
-    'port': redis_url.port or 6379,
-    'password': redis_url.password
-}
-
+if REDIS_URL:
+    ru = urlparse(REDIS_URL)
+    # Validate numeric port (avoids: ValueError: 'port')
+    if ru.port is None:
+        raise ValueError(f"REDIS_URL must include a numeric port, got: {REDIS_URL}")
+    REDIS = {
+        'host': ru.hostname or 'localhost',
+        'port': ru.port,
+        'password': ru.password
+    }
+else:
+    REDIS = None
 # ============================================================================
 # API SETTINGS
 # ============================================================================
@@ -64,3 +69,4 @@ print("✅ Config loaded")
 print(f"   - Database host: {DATABASE['host']}")
 print(f"   - Read-only: {READ_ONLY_MODE}")
 print(f"   - Rescrape enabled: {ENABLE_RESCRAPE}")
+
