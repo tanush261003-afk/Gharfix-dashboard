@@ -1,5 +1,7 @@
+
 """
 Configuration - Works for BOTH local and Render
+Production-safe config with fail-fast validation
 """
 import os
 from urllib.parse import urlparse
@@ -27,10 +29,7 @@ if not DATABASE['host'] or not DATABASE['database']:
 # BELLEVIE AUTHENTICATION (only needed locally)
 # ============================================================================
 
-BELLEVIE_AUTH_COOKIE = os.getenv(
-    "BELLEVIE_AUTH_COOKIE",
-    ""  # Leave empty by default to avoid accidental use on Render
-)
+BELLEVIE_AUTH_COOKIE = os.getenv("BELLEVIE_AUTH_COOKIE", "")
 
 # ============================================================================
 # REDIS (optional - only if using caching)
@@ -39,17 +38,24 @@ BELLEVIE_AUTH_COOKIE = os.getenv(
 REDIS_URL = os.getenv('REDIS_URL', '').strip()
 
 if REDIS_URL:
-    ru = urlparse(REDIS_URL)
-    # Validate numeric port (avoids: ValueError: 'port')
-    if ru.port is None:
-        raise ValueError(f"REDIS_URL must include a numeric port, got: {REDIS_URL}")
-    REDIS = {
-        'host': ru.hostname or 'localhost',
-        'port': ru.port,
-        'password': ru.password
-    }
+    try:
+        ru = urlparse(REDIS_URL)
+        # Validate that we can extract the port safely
+        # This prevents: ValueError: Port could not be cast to integer value as 'port'
+        if ru.port is None:
+            raise ValueError(f"REDIS_URL must include a numeric port, got: {REDIS_URL}")
+        REDIS = {
+            'host': ru.hostname or 'localhost',
+            'port': ru.port,
+            'password': ru.password
+        }
+    except ValueError as e:
+        print(f"❌ REDIS_URL parse error: {e}")
+        print("⚠️  Disabling Redis. Set a valid REDIS_URL or remove it from env.")
+        REDIS = None
 else:
     REDIS = None
+
 # ============================================================================
 # API SETTINGS
 # ============================================================================
@@ -65,8 +71,13 @@ API_PORT = int(os.getenv('PORT', 10000))
 READ_ONLY_MODE = os.getenv('READ_ONLY_MODE', 'true').lower() == 'true'
 ENABLE_RESCRAPE = os.getenv('ENABLE_RESCRAPE', 'false').lower() == 'true'
 
+# ============================================================================
+# STARTUP DIAGNOSTICS
+# ============================================================================
+
 print("✅ Config loaded")
 print(f"   - Database host: {DATABASE['host']}")
+print(f"   - Database: {DATABASE['database']}")
 print(f"   - Read-only: {READ_ONLY_MODE}")
 print(f"   - Rescrape enabled: {ENABLE_RESCRAPE}")
-
+print(f"   - Redis: {'Enabled' if REDIS else 'Disabled'}")
