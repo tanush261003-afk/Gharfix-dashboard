@@ -4,6 +4,9 @@ from datetime import datetime
 import os
 import psycopg
 import subprocess
+import csv
+import io
+import json
 
 # ============================================================================
 # GHARFIX ANALYTICS API - LEAD EVENTS TABLE
@@ -36,6 +39,10 @@ def get_all_analytics():
         cur.execute("SELECT COUNT(*) FROM lead_events")
         total = cur.fetchone()[0]
         
+        # Get unique customers
+        cur.execute("SELECT COUNT(DISTINCT customer_id) FROM lead_events")
+        unique_customers = cur.fetchone()[0]
+        
         # All services
         cur.execute("""
             SELECT COALESCE(sub_category_name, 'Other') as service, COUNT(*) as count
@@ -51,6 +58,7 @@ def get_all_analytics():
         cur.execute("""
             SELECT status, COUNT(*) as count
             FROM lead_events
+            WHERE status IS NOT NULL AND status != ''
             GROUP BY status
             ORDER BY count DESC
         """)
@@ -58,11 +66,9 @@ def get_all_analytics():
         
         conn.close()
         
-        print(f"✅ Returned {total} events with {len(all_services)} services and {len(status_dist)} statuses")
-        
         return jsonify({
             'total_events': total,
-            'total_leads': total,  # For UI compatibility
+            'unique_customers': unique_customers,
             'all_services': all_services,
             'status_distribution': status_dist,
             'timestamp': str(datetime.now()),
@@ -100,6 +106,14 @@ def get_filtered_analytics():
         cur.execute(base_query)
         total_events = cur.fetchone()[0]
         
+        # Get unique customers
+        customer_query = "SELECT COUNT(DISTINCT customer_id) FROM lead_events"
+        if where_conditions:
+            customer_query += " WHERE " + " AND ".join(where_conditions)
+        
+        cur.execute(customer_query)
+        unique_customers = cur.fetchone()[0]
+        
         # Get status distribution for filtered results
         status_query = "SELECT status, COUNT(*) as count FROM lead_events"
         if where_conditions:
@@ -126,7 +140,7 @@ def get_filtered_analytics():
         
         return jsonify({
             'total_events': total_events,
-            'total_leads': total_events,  # For UI compatibility
+            'unique_customers': unique_customers,
             'all_services': all_services,
             'status_distribution': status_dist
         })
@@ -173,6 +187,125 @@ def system_status():
             'status': 'error',
             'error': str(e)
         }), 500
+
+# ============================================================================
+# EXPORT ENDPOINTS - CSV AND JSON
+# ============================================================================
+
+@app.route('/api/export/csv')
+def export_csv():
+    """Export current analytics as CSV"""
+    try:
+        status = request.args.get('status', '').strip()
+        service = request.args.get('service', '').strip()
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Build query
+        where_conditions = []
+        
+        if status and status != 'All Status':
+            where_conditions.append(f"status = '{status}'")
+        
+        if service and service != 'All Services':
+            where_conditions.append(f"sub_category_name = '{service}'")
+        
+        # Get all lead data
+        query = """
+            SELECT customer_id, first_name, last_name, email, mobile_no, status,
+                   sub_category_name, service_name, vendor_name, TO_TIMESTAMP(submitted_at/1000) as submitted_at
+            FROM lead_events
+        """
+        
+        if where_conditions:
+            query += " WHERE " + " AND ".join(where_conditions)
+        
+        query += " ORDER BY submitted_at DESC"
+        
+        cur.execute(query)
+        rows = cur.fetchall()
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(['Customer ID', 'First Name', 'Last Name', 'Email', 'Mobile', 
+                        'Status', 'Service', 'Service Name', 'Vendor', 'Submitted At'])
+        
+        # Write data
+        for row in rows:
+            writer.writerow(row)
+        
+        conn.close()
+        
+        # Return as downloadable file
+        output.seek(0)
+        return send_file(
+            io.BytesIO(output.getvalue().encode('utf-8')),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f'gharfix-leads-{datetime.now().strftime("%Y-%m-%d")}.csv'
+        )
+    
+    except Exception as e:
+        print(f"❌ Error exporting CSV: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export/json')
+def export_json():
+    """Export current analytics as JSON"""
+    try:
+        status = request.args.get('status', '').strip()
+        service = request.args.get('service', '').strip()
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Build query
+        where_conditions = []
+        
+        if status and status != 'All Status':
+            where_conditions.append(f"status = '{status}'")
+        
+        if service and service != 'All Services':
+            where_conditions.append(f"sub_category_name = '{service}'")
+        
+        # Get all lead data
+        query = """
+            SELECT customer_id, first_name, last_name, email, mobile_no, status,
+                   sub_category_name, service_name, vendor_name, submitted_at, comment, category_name
+            FROM lead_events
+        """
+        
+        if where_conditions:
+            query += " WHERE " + " AND ".join(where_conditions)
+        
+        query += " ORDER BY submitted_at DESC"
+        
+        cur.execute(query)
+        
+        # Get column names
+        columns = [desc[0] for desc in cur.description]
+        
+        # Convert to list of dicts
+        data = [dict(zip(columns, row)) for row in cur.fetchall()]
+        
+        conn.close()
+        
+        # Return as downloadable file
+        json_data = json.dumps(data, indent=2, default=str)
+        return send_file(
+            io.BytesIO(json_data.encode('utf-8')),
+            mimetype='application/json',
+            as_attachment=True,
+            download_name=f'gharfix-leads-{datetime.now().strftime("%Y-%m-%d")}.json'
+        )
+    
+    except Exception as e:
+        print(f"❌ Error exporting JSON: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # ============================================================================
 # RESCRAPE ENDPOINT
@@ -235,8 +368,15 @@ def dashboard():
 def index():
     return jsonify({
         "status": "Gharfix Analytics API - Lead Events",
-        "version": "3.0",
+        "version": "3.1",
         "data_source": "lead_events table (all events with history)",
+        "features": [
+            "Real-time analytics",
+            "Dynamic status & service filters",
+            "CSV export",
+            "JSON export",
+            "Rescrape functionality"
+        ],
         "dashboard": "/dashboard"
     })
 
@@ -263,6 +403,7 @@ if __name__ == '__main__':
     print("  Data source: lead_events table (all events)")
     print("  Dashboard: http://localhost:10000/dashboard")
     print("  Rescrape: " + ("ENABLED ✅" if ENABLE_RESCRAPE else "DISABLED ❌"))
+    print("  Export: CSV ✅ JSON ✅")
     print("="*60 + "\n")
     
     # Test database connection
