@@ -1,35 +1,44 @@
 #!/usr/bin/env python3
 """
-INCREMENTAL Scraper - Only fetches NEW leads since last run
-Efficient for scheduled runs (every hour)
+Gharfix Incremental Scraper - Reads from environment variables
 """
 
 import requests
 import psycopg
 import time
-from collections import Counter
+import os
 
+# ✅ Load from environment variables
 CONFIG = {
-    'DB_URL': 'postgresql://neondb_owner:npg_4htwi0nmEdNv@ep-sweet-union-ahmpxyfe-pooler.c-3.us-east-1.aws.neon.tech:5432/Gharfix-leads?sslmode=require',
+    'DB_URL': os.getenv('DATABASE_URL'),
     'BELLEVIE_API_URL': 'https://bellevie.life/dapi/marketplace/order-leads/list',
-    'COOKIE_FULL': '_ga_M809EE54F9=GS1.1.1736145199.1.0.1736145211.0.0.0; _ga=GA1.1.1433127903.1736145200; bGH_6fJF77c=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbmNyeXB0ZWREYXRhIjoiODEwMDhmMDZjYmIwYjE3Yjk4NmQ3MDQ5ZDI2OTkwMTBmZmM1MTIxMTk5OTU4OGJlZDY5ODQxZTIxYTcyZjY2YjcxZjBjYWFlYmQ2NjVmMWYyZjczMzM0OGU2ZTYyNDhjZjc1YTE2MzI1MjYyNTNmMDU1Mzk4MzQ3YzljYTZmZDdiNDg3M2Q2MTVkYmZhYmEyMTZiZDRhOTY2ZGJlY2JjZWJiZmVmYTgxOWFjMzk2NmY1MDY3ZTRmZDA2YzRlZWY1N2M1NmU3N2QwMDcxNTE0ODQzMGRiYzYwM2IyNTViMWVhZjFmYmE1NjQ0NGZkMTM3M2ZmNzEwYTM2NjllNzUwYjYxMDBiMTE4ZjYyM2ZlMzQ5MzgxMmJiYzJiOGFkMzE4ZDg5ZTBlZTM2NWRjMDY3YmM2NjdiMTRmY2VlOGE2MGRhYzU4NDA3NTY2ZjMxZThiNTBkZGM1Y2E0YTlmOTNjMzBhMzc3Y2Q1NTE5Y2I3MjBhMjEyY2JhMzAxMWI3OTNlMjBiM2I5ODA0Nzg3MWZiOGFiYjI1YWU3MzkwZjhlZmU0NTE2Y2VmNGNiZjQ1MzMyMWRmNjQzZThjMDFhNmRiZDBmNTU1MmUzMmM0MzgwNThiZTNhNTljOGY5YmRmMzgzYTc3ZDY5NDM3YWI2Y2ViMmNhOWM5YjFmZmQ1MjUzNDIiLCJpdiI6IjBweWl1V3h0MXRIbzFnS2giLCJpYXQiOjE3MzYxNDUyNjksImV4cCI6MTc2NzY4MTI2OX0.92SszfLOkDF_rZDvBrNpzHgCKE5_aJau_xg0Ket5R8Q',
+    'COOKIE_FULL': f"_ga_M809EE54F9=GS1.1.1736145199.1.0.1736145211.0.0.0; _ga=GA1.1.1433127903.1736145200; bGH_6fJF77c={os.getenv('BELLEVIE_AUTH_COOKIE')}",
     'PAGE_SIZE': 100,
-    'MAX_PAGES': 10,  # Only check first 10 pages (1000 leads)
+    'MAX_PAGES': 10,
 }
 
 def main():
-    print("\n" + "="*60)
-    print(f"🔄 INCREMENTAL SCRAPER - {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*60 + "\n")
+    print(f"\n{'='*60}")
+    print(f"🔄 SCRAPER RUN - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*60}\n")
+    
+    # Validate environment variables
+    if not CONFIG['DB_URL']:
+        print("❌ ERROR: DATABASE_URL not set!")
+        return
+    
+    if not os.getenv('BELLEVIE_AUTH_COOKIE'):
+        print("❌ ERROR: BELLEVIE_AUTH_COOKIE not set!")
+        return
     
     start_time = time.time()
     
-    # Get last lead ID from database
+    # Get last lead ID
     last_id = get_last_lead_id()
     print(f"📊 Last lead ID in DB: {last_id}\n")
     
-    # Fetch ONLY new leads
-    print("📡 Fetching new leads from Bellevie...")
+    # Fetch new leads
+    print("📡 Fetching new leads...")
     new_leads = fetch_new_leads_only(last_id)
     print(f"\n✅ New leads found: {len(new_leads)}\n")
     
@@ -37,7 +46,7 @@ def main():
         print("ℹ️  No new leads since last run\n")
         return
     
-    # Insert to both tables
+    # Insert to database
     print("💾 Inserting to database...")
     result_leads = insert_to_leads_table(new_leads)
     result_events = insert_to_events_table(new_leads)
@@ -56,11 +65,11 @@ def get_last_lead_id():
         result = cur.fetchone()
         conn.close()
         return result[0] if result and result[0] else 0
-    except:
+    except Exception as e:
+        print(f"⚠️ Warning: Could not get last ID: {e}")
         return 0
 
 def fetch_new_leads_only(last_id):
-    """Fetch ONLY leads with customer_id > last_id"""
     new_leads = []
     page = 1
     headers = {'Cookie': CONFIG['COOKIE_FULL']}
@@ -90,14 +99,13 @@ def fetch_new_leads_only(last_id):
                 print("✓ End")
                 break
             
-            # Filter for NEW leads only
+            # Filter for new leads
             page_new = [l for l in leads if l.get('customerId', 0) > last_id]
             new_leads.extend(page_new)
             print(f"✓ {len(page_new)} new")
             
-            # Stop if no new leads on this page (older leads ahead)
             if len(page_new) == 0:
-                print("   ℹ️  Reached old leads, stopping")
+                print("   ℹ️  Reached old leads")
                 break
             
             page += 1
@@ -154,46 +162,50 @@ def insert_to_leads_table(leads):
 
 def insert_to_events_table(leads):
     inserted = 0
-    conn = psycopg.connect(CONFIG['DB_URL'])
-    cur = conn.cursor()
-    
-    for lead in leads:
-        try:
-            services = lead.get('services', {})
-            event_id = f"{lead.get('customerId')}_{lead.get('submittedAt')}"
-            
-            query = """
-                INSERT INTO lead_events (
-                    event_id, customer_id, first_name, last_name, mobile_no, email,
-                    comment, vendor_id, vendor_name, rate_card_name,
-                    category_id, sub_category_id, service_id, service_name,
-                    category_name, sub_category_name, lead_double_amount,
-                    package_type, status, submitted_at
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+    try:
+        conn = psycopg.connect(CONFIG['DB_URL'])
+        cur = conn.cursor()
+        
+        for lead in leads:
+            try:
+                services = lead.get('services', {})
+                event_id = f"{lead.get('customerId')}_{lead.get('submittedAt')}"
+                
+                query = """
+                    INSERT INTO lead_events (
+                        event_id, customer_id, first_name, last_name, mobile_no, email,
+                        comment, vendor_id, vendor_name, rate_card_name,
+                        category_id, sub_category_id, service_id, service_name,
+                        category_name, sub_category_name, lead_double_amount,
+                        package_type, status, submitted_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (event_id) DO NOTHING
+                """
+                values = (
+                    event_id, lead.get('customerId'),
+                    (lead.get('firstName') or '')[:255], (lead.get('lastName') or '')[:255],
+                    (lead.get('mobileNo') or '')[:20], (lead.get('email') or '')[:255],
+                    (lead.get('comment') or '')[:1000], lead.get('vendorId'),
+                    (lead.get('vendorName') or '')[:255], (services.get('rateCardName') or '')[:255],
+                    services.get('categoryId'), services.get('subCategoryId'), services.get('serviceId'),
+                    (services.get('serviceName') or '')[:255], (services.get('categoryName') or '')[:255],
+                    (services.get('subCategoryName') or '')[:255], lead.get('leadDoubleAmount', False),
+                    (lead.get('packageType') or '')[:100], (lead.get('status') or '')[:100],
+                    lead.get('submittedAt'),
                 )
-                ON CONFLICT (event_id) DO NOTHING
-            """
-            values = (
-                event_id, lead.get('customerId'),
-                (lead.get('firstName') or '')[:255], (lead.get('lastName') or '')[:255],
-                (lead.get('mobileNo') or '')[:20], (lead.get('email') or '')[:255],
-                (lead.get('comment') or '')[:1000], lead.get('vendorId'),
-                (lead.get('vendorName') or '')[:255], (services.get('rateCardName') or '')[:255],
-                services.get('categoryId'), services.get('subCategoryId'), services.get('serviceId'),
-                (services.get('serviceName') or '')[:255], (services.get('categoryName') or '')[:255],
-                (services.get('subCategoryName') or '')[:255], lead.get('leadDoubleAmount', False),
-                (lead.get('packageType') or '')[:100], (lead.get('status') or '')[:100],
-                lead.get('submittedAt'),
-            )
-            cur.execute(query, values)
-            conn.commit()
-            inserted += 1
-        except Exception as e:
-            print(f"   Error: {e}")
+                cur.execute(query, values)
+                conn.commit()
+                inserted += 1
+            except Exception as e:
+                print(f"   Event insert error: {e}")
+        
+        conn.close()
+    except Exception as e:
+        print(f"   ⚠️ Warning: lead_events table might not exist: {e}")
     
-    conn.close()
     return {'inserted': inserted}
 
 if __name__ == '__main__':
@@ -201,3 +213,5 @@ if __name__ == '__main__':
         main()
     except Exception as e:
         print(f"\n❌ Error: {e}\n")
+        import traceback
+        traceback.print_exc()
