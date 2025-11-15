@@ -131,7 +131,10 @@ def get_filtered_analytics():
 
 @app.route('/api/rescrape', methods=['POST'])
 def rescrape_leads():
-    """Rescrape - disabled on Render, works locally"""
+    """
+    Smart rescrape - ONLY fetches new leads from last saved ID
+    Disabled on Render, works locally
+    """
     if READ_ONLY_MODE or not ENABLE_RESCRAPE:
         return jsonify({
             'status': 'info',
@@ -144,24 +147,39 @@ def rescrape_leads():
     try:
         from scraper import scraper
         
-        print("🔄 Starting rescrape...")
-        leads = scraper.fetch_all_leads()
+        print("🔄 Starting SMART incremental rescrape...")
         
-        if not leads:
-            return jsonify({'error': 'No leads fetched', 'status': 'error'}), 400
+        # Get last lead ID
+        last_id = db.get_last_lead_id()
+        print(f"📊 Last lead ID in DB: {last_id}")
         
-        result = db.insert_leads(leads)
+        # Fetch ONLY new leads
+        new_leads = scraper.fetch_new_leads_only(last_lead_id=last_id)
+        
+        if not new_leads:
+            return jsonify({
+                'status': 'success',
+                'message': '✅ No new leads found since last scrape',
+                'total_fetched': 0,
+                'inserted': 0,
+                'duplicates': 0
+            }), 200
+        
+        print(f"✅ NEW LEADS FETCHED: {len(new_leads)}")
+        
+        # Insert into database (NO DUPLICATE FILTERING)
+        result = db.insert_leads(new_leads)
         
         # Export files
-        scraper.export_to_csv(leads, 'all_leads.csv')
-        scraper.export_to_json(leads, 'all_leads.json')
+        scraper.export_to_csv(new_leads, 'new_leads.csv')
+        scraper.export_to_json(new_leads, 'new_leads.json')
         
-        print(f"✅ Rescrape complete: {result['inserted']} new, {result['duplicates']} duplicates")
+        print(f"✅ Rescrape complete!")
         
         return jsonify({
             'status': 'success',
             'message': f"✅ Rescrape complete! {result['inserted']} new leads added",
-            'total_fetched': len(leads),
+            'total_fetched': len(new_leads),
             'inserted': result['inserted'],
             'duplicates': result['duplicates']
         })
@@ -169,7 +187,11 @@ def rescrape_leads():
         print(f"❌ Rescrape error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'status': 'error', 'error': str(e)}), 400
+        return jsonify({
+            'status': 'error',
+            'message': f"❌ Error: {str(e)}",
+            'error': str(e)
+        }), 400
 
 # ==================== DOWNLOAD ROUTES ====================
 
@@ -177,9 +199,9 @@ def rescrape_leads():
 def download_csv():
     """Download leads as CSV"""
     try:
-        if not os.path.exists('all_leads.csv'):
+        if not os.path.exists('new_leads.csv'):
             return jsonify({'error': 'CSV file not found. Please rescrape first.'}), 404
-        return send_file('all_leads.csv', 
+        return send_file('new_leads.csv', 
                         mimetype='text/csv',
                         as_attachment=True,
                         download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
@@ -191,9 +213,9 @@ def download_csv():
 def download_json():
     """Download leads as JSON"""
     try:
-        if not os.path.exists('all_leads.json'):
+        if not os.path.exists('new_leads.json'):
             return jsonify({'error': 'JSON file not found. Please rescrape first.'}), 404
-        return send_file('all_leads.json',
+        return send_file('new_leads.json',
                         mimetype='application/json',
                         as_attachment=True,
                         download_name=f'gharfix_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
@@ -202,6 +224,23 @@ def download_json():
         return jsonify({'error': str(e)}), 500
 
 # ==================== UTILITY ROUTES ====================
+
+@app.route('/api/system-status')
+def system_status():
+    """Show system status"""
+    try:
+        total = db.get_leads_count()
+        last_id = db.get_last_lead_id()
+        
+        return jsonify({
+            'status': 'online',
+            'total_leads': total,
+            'last_lead_id': last_id,
+            'mode': 'Read-Only' if READ_ONLY_MODE else 'Full Access',
+            'database': 'Connected'
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 @app.route('/dashboard')
 def dashboard():
