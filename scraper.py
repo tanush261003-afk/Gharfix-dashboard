@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Gharfix Incremental Scraper - Reads from environment variables
+Gharfix FULL Scraper - Fetches ALL leads and populates both tables
+Use this for rescrape button or initial load
 """
 
 import requests
@@ -8,18 +9,17 @@ import psycopg
 import time
 import os
 
-# ✅ Load from environment variables
 CONFIG = {
     'DB_URL': os.getenv('DATABASE_URL'),
     'BELLEVIE_API_URL': 'https://bellevie.life/dapi/marketplace/order-leads/list',
     'COOKIE_FULL': f"_ga_M809EE54F9=GS1.1.1736145199.1.0.1736145211.0.0.0; _ga=GA1.1.1433127903.1736145200; bGH_6fJF77c={os.getenv('BELLEVIE_AUTH_COOKIE')}",
     'PAGE_SIZE': 100,
-    'MAX_PAGES': 10,
+    'MAX_PAGES': 100,  # Fetch up to 10,000 leads
 }
 
 def main():
     print(f"\n{'='*60}")
-    print(f"🔄 SCRAPER RUN - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔄 FULL SCRAPER - {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}\n")
     
     # Validate environment variables
@@ -33,50 +33,35 @@ def main():
     
     start_time = time.time()
     
-    # Get last lead ID
-    last_id = get_last_lead_id()
-    print(f"📊 Last lead ID in DB: {last_id}\n")
+    # Fetch ALL leads
+    print("📡 Fetching ALL leads from Bellevie...")
+    all_leads = fetch_all_leads()
+    print(f"\n✅ Total leads fetched: {len(all_leads)}\n")
     
-    # Fetch new leads
-    print("📡 Fetching new leads...")
-    new_leads = fetch_new_leads_only(last_id)
-    print(f"\n✅ New leads found: {len(new_leads)}\n")
-    
-    if len(new_leads) == 0:
-        print("ℹ️  No new leads since last run\n")
+    if len(all_leads) == 0:
+        print("ℹ️  No leads found\n")
         return
     
-    # Insert to database
+    # Insert to both tables
     print("💾 Inserting to database...")
-    result_leads = insert_to_leads_table(new_leads)
-    result_events = insert_to_events_table(new_leads)
+    result_leads = insert_to_leads_table(all_leads)
+    result_events = insert_to_events_table(all_leads)
     
-    print(f"   leads table: {result_leads['inserted']} inserted")
-    print(f"   lead_events table: {result_events['inserted']} inserted\n")
+    print(f"   leads table: {result_leads['inserted']} new, {result_leads['updated']} updated")
+    print(f"   lead_events table: {result_events['inserted']} new events\n")
     
     duration = int(time.time() - start_time)
     print(f"⏱️  Completed in {duration}s\n")
 
-def get_last_lead_id():
-    try:
-        conn = psycopg.connect(CONFIG['DB_URL'])
-        cur = conn.cursor()
-        cur.execute("SELECT MAX(customer_id) FROM leads")
-        result = cur.fetchone()
-        conn.close()
-        return result[0] if result and result[0] else 0
-    except Exception as e:
-        print(f"⚠️ Warning: Could not get last ID: {e}")
-        return 0
-
-def fetch_new_leads_only(last_id):
-    new_leads = []
+def fetch_all_leads():
+    """Fetch ALL leads from Bellevie API"""
+    all_leads = []
     page = 1
     headers = {'Cookie': CONFIG['COOKIE_FULL']}
     
     while page <= CONFIG['MAX_PAGES']:
         try:
-            print(f"   Page {page}...", end=' ', flush=True)
+            print(f"   Page {page:3d}...", end=' ', flush=True)
             response = requests.post(
                 CONFIG['BELLEVIE_API_URL'],
                 headers=headers,
@@ -95,34 +80,30 @@ def fetch_new_leads_only(last_id):
                 print("❌ Bad response")
                 break
             
-            if not leads:
-                print("✓ End")
+            if not leads or len(leads) == 0:
+                print("✓ END")
                 break
             
-            # Filter for new leads
-            page_new = [l for l in leads if l.get('customerId', 0) > last_id]
-            new_leads.extend(page_new)
-            print(f"✓ {len(page_new)} new")
-            
-            if len(page_new) == 0:
-                print("   ℹ️  Reached old leads")
-                break
-            
+            print(f"✓ {len(leads):3d} leads")
+            all_leads.extend(leads)
             page += 1
-            time.sleep(0.2)
+            time.sleep(0.2)  # Rate limiting
             
         except Exception as e:
             print(f"❌ {e}")
             break
     
-    return new_leads
+    return all_leads
 
 def insert_to_leads_table(leads):
+    """Insert/update leads in 'leads' table (latest status per customer)"""
     inserted = 0
+    updated = 0
+    
     conn = psycopg.connect(CONFIG['DB_URL'])
     cur = conn.cursor()
     
-    for lead in leads:
+    for i, lead in enumerate(leads):
         try:
             services = lead.get('services', {})
             query = """
@@ -137,7 +118,16 @@ def insert_to_leads_table(leads):
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
                 )
                 ON CONFLICT (customer_id) DO UPDATE SET
-                    status = EXCLUDED.status, updated_at = NOW()
+                    first_name = EXCLUDED.first_name,
+                    last_name = EXCLUDED.last_name,
+                    mobile_no = EXCLUDED.mobile_no,
+                    email = EXCLUDED.email,
+                    comment = EXCLUDED.comment,
+                    status = EXCLUDED.status,
+                    vendor_name = EXCLUDED.vendor_name,
+                    submitted_at = EXCLUDED.submitted_at,
+                    updated_at = NOW()
+                RETURNING (xmax = 0) AS is_insert
             """
             values = (
                 lead.get('customerId'), (lead.get('firstName') or '')[:255],
@@ -152,21 +142,36 @@ def insert_to_leads_table(leads):
                 lead.get('submittedAt'),
             )
             cur.execute(query, values)
+            
+            # Check if it was an insert or update
+            result = cur.fetchone()
+            if result and result[0]:
+                inserted += 1
+            else:
+                updated += 1
+            
             conn.commit()
-            inserted += 1
+            
+            # Progress indicator
+            if (i + 1) % 100 == 0:
+                print(f"     Progress: {i+1}/{len(leads)}")
+        
         except Exception as e:
-            print(f"   Error: {e}")
+            print(f"     ⚠️ Error inserting lead {lead.get('customerId')}: {e}")
     
     conn.close()
-    return {'inserted': inserted}
+    return {'inserted': inserted, 'updated': updated}
 
 def insert_to_events_table(leads):
+    """Insert ALL events into 'lead_events' table"""
     inserted = 0
+    duplicates = 0
+    
     try:
         conn = psycopg.connect(CONFIG['DB_URL'])
         cur = conn.cursor()
         
-        for lead in leads:
+        for i, lead in enumerate(leads):
             try:
                 services = lead.get('services', {})
                 event_id = f"{lead.get('customerId')}_{lead.get('submittedAt')}"
@@ -197,21 +202,34 @@ def insert_to_events_table(leads):
                     lead.get('submittedAt'),
                 )
                 cur.execute(query, values)
+                
+                if cur.rowcount > 0:
+                    inserted += 1
+                else:
+                    duplicates += 1
+                
                 conn.commit()
-                inserted += 1
+                
+                # Progress indicator
+                if (i + 1) % 100 == 0:
+                    print(f"     Progress: {i+1}/{len(leads)} ({inserted} new events)")
+            
             except Exception as e:
-                print(f"   Event insert error: {e}")
+                print(f"     ⚠️ Event insert error for {lead.get('customerId')}: {e}")
         
         conn.close()
-    except Exception as e:
-        print(f"   ⚠️ Warning: lead_events table might not exist: {e}")
     
-    return {'inserted': inserted}
+    except Exception as e:
+        print(f"   ⚠️ Warning: lead_events table error: {e}")
+    
+    return {'inserted': inserted, 'duplicates': duplicates}
 
 if __name__ == '__main__':
     try:
         main()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Interrupted by user\n")
     except Exception as e:
-        print(f"\n❌ Error: {e}\n")
+        print(f"\n❌ Fatal error: {e}\n")
         import traceback
         traceback.print_exc()
