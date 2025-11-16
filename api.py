@@ -313,38 +313,42 @@ def export_json():
 
 @app.route('/api/rescrape', methods=['POST'])
 def rescrape():
-    """Trigger rescrape by running scraper.py"""
+    """Trigger rescrape by running scraper.py in background"""
     
     if not ENABLE_RESCRAPE:
         return jsonify({'error': 'Rescrape is disabled'}), 403
     
     try:
-        # Run the scraper script
-        result = subprocess.run(
-            ['python', 'scraper.py'],
-            capture_output=True,
-            text=True,
-            timeout=600  # 10 minute timeout
-        )
+        # Run scraper in BACKGROUND (non-blocking)
+        import subprocess
+        import threading
         
-        if result.returncode == 0:
-            return jsonify({
-                'status': 'success',
-                'message': 'Rescrape completed',
-                'output': result.stdout[-500:] if result.stdout else 'No output'  # Last 500 chars
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Rescrape failed',
-                'error': result.stderr[-500:] if result.stderr else 'Unknown error'
-            }), 500
-    
-    except subprocess.TimeoutExpired:
+        def run_scraper():
+            """Run scraper in background thread"""
+            try:
+                result = subprocess.run(
+                    ['python3', 'scraper.py'],
+                    capture_output=True,
+                    text=True,
+                    timeout=1200  # 20 minute timeout
+                )
+                print(f"Scraper completed with return code: {result.returncode}")
+                if result.stdout:
+                    print(f"Scraper output: {result.stdout[-500:]}")
+                if result.stderr:
+                    print(f"Scraper errors: {result.stderr[-500:]}")
+            except Exception as e:
+                print(f"Scraper error: {e}")
+        
+        # Start scraper in background thread
+        thread = threading.Thread(target=run_scraper, daemon=True)
+        thread.start()
+        
         return jsonify({
-            'status': 'error',
-            'message': 'Rescrape timed out after 10 minutes'
-        }), 500
+            'status': 'success',
+            'message': 'Rescrape started in background. Check database in 2-3 minutes for updates.',
+            'info': 'The scraper is now running. Refresh the dashboard in a few minutes to see new leads.'
+        })
     
     except Exception as e:
         return jsonify({
