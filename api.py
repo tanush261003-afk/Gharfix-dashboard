@@ -106,49 +106,71 @@ def dashboard():
 @auth_required
 def get_all_analytics():
     """
-    Get all analytics - SMART COUNTS:
-    - total_lead_events = ALL events from lead_events table (matches Bellevie)
-    - unique_customers = COUNT DISTINCT from lead_latest_status (separate count)
+    Get analytics using ONLY lead_events table:
+    - total_lead_events = COUNT(*) from lead_events (matches Bellevie)
+    - unique_customers = COUNT(DISTINCT customer_id) from lead_events (separate count)
+    - status_distribution = Latest status per customer from lead_events
     """
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # COUNT 1: Total lead events (matches Bellevie - ALL records)
+        # COUNT 1: Total lead events (ALL records - matches Bellevie)
         cur.execute('SELECT COUNT(*) FROM lead_events')
         total_lead_events = cur.fetchone()[0]
         
-        # COUNT 2: Unique customers (from latest status table)
-        cur.execute('SELECT COUNT(DISTINCT lead_id) FROM lead_latest_status')
+        # COUNT 2: Unique customers (from lead_events, distinct)
+        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_events')
         unique_customers = cur.fetchone()[0]
         
-        # Get status distribution (LATEST STATUS ONLY)
+        # Get latest status per customer (GROUP BY customer, ORDER BY submitted_at DESC)
         cur.execute('''
-            SELECT current_status, COUNT(*) as count
-            FROM lead_latest_status
-            GROUP BY current_status
-            ORDER BY count DESC
+            SELECT DISTINCT ON (customer_id) 
+                customer_id, status, submitted_at
+            FROM lead_events
+            ORDER BY customer_id, submitted_at DESC
         ''')
-        status_data = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
         
-        # Get services
+        latest_statuses = cur.fetchall()
+        
+        # Count by latest status
+        status_counts = {}
+        for row in latest_statuses:
+            status = row[1]
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        status_data = [
+            {'status': status, 'count': count} 
+            for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+        
+        # Get services (latest per customer)
         cur.execute('''
-            SELECT service_name, COUNT(*) as count
-            FROM lead_latest_status
+            SELECT DISTINCT ON (customer_id) 
+                customer_id, service_name
+            FROM lead_events
             WHERE service_name IS NOT NULL AND service_name != ''
-            GROUP BY service_name
-            ORDER BY count DESC
-            LIMIT 20
+            ORDER BY customer_id, submitted_at DESC
         ''')
-        services_data = [{'service': row[0], 'count': row[1]} for row in cur.fetchall()]
+        
+        services_data_raw = cur.fetchall()
+        services_count = {}
+        for row in services_data_raw:
+            service = row[1]
+            services_count[service] = services_count.get(service, 0) + 1
+        
+        services_data = [
+            {'service': service, 'count': count}
+            for service, count in sorted(services_count.items(), key=lambda x: x[1], reverse=True)
+        ][:20]
         
         cur.close()
         conn.close()
         
         return jsonify({
-            'total_lead_events': total_lead_events,    # ← Matches Bellevie (e.g., 4857)
-            'unique_customers': unique_customers,       # ← Separate count (e.g., 3200)
-            'status_distribution': status_data,
+            'total_lead_events': total_lead_events,    # ← ALL records (matches Bellevie)
+            'unique_customers': unique_customers,       # ← DISTINCT customers
+            'status_distribution': status_data,         # ← Latest status per customer
             'top_services': services_data,
             'sync_status': 'Connected to Bellevie',
             'last_updated': datetime.now().isoformat()
@@ -161,7 +183,7 @@ def get_all_analytics():
 @app.route('/api/filtered-analytics', methods=['GET'])
 @auth_required
 def get_filtered_analytics():
-    """Get filtered analytics"""
+    """Get filtered analytics using only lead_events"""
     try:
         status_filter = request.args.get('status', '').strip()
         service_filter = request.args.get('service', '').strip()
@@ -169,74 +191,71 @@ def get_filtered_analytics():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Build WHERE clause
-        where_clauses = []
-        params = []
+        # Get latest status per customer first
+        cur.execute('''
+            SELECT DISTINCT ON (customer_id) 
+                customer_id, status
+            FROM lead_events
+            ORDER BY customer_id, submitted_at DESC
+        ''')
         
+        latest_by_customer = {}
+        for row in cur.fetchall():
+            latest_by_customer[row[0]] = row[1]
+        
+        # Filter by status if specified
         if status_filter and status_filter.upper() != 'ALL STATUS':
-            where_clauses.append('lls.current_status = %s')
-            params.append(status_filter)
+            filtered_customers = [
+                cid for cid, status in latest_by_customer.items() 
+                if status == status_filter
+            ]
+        else:
+            filtered_customers = list(latest_by_customer.keys())
         
-        where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
-        
-        # Get filtered leads
-        cur.execute(f'''
-            SELECT DISTINCT lls.lead_id, lls.customer_id, lls.current_status
-            FROM lead_latest_status lls
-            WHERE {where_sql}
-        ''', params)
-        
-        lead_ids = [str(row[0]) for row in cur.fetchall()]
-        
-        if not lead_ids:
+        if not filtered_customers:
             return jsonify({
-                'filtered_count': 0,
+                'filtered_events': 0,
+                'filtered_customers': 0,
                 'services': [],
                 'status_data': []
             }), 200
         
-        # Get total events for filtered leads
+        # Count events for filtered customers
+        placeholders = ','.join(['%s'] * len(filtered_customers))
         cur.execute(f'''
             SELECT COUNT(*)
             FROM lead_events
-            WHERE customer_id IN ({', '.join(lead_ids)})
-        ''')
+            WHERE customer_id IN ({placeholders})
+        ''', filtered_customers)
         filtered_events = cur.fetchone()[0]
         
-        # Get unique customers for filtered leads
+        # Get services for filtered customers
         cur.execute(f'''
-            SELECT COUNT(DISTINCT customer_id)
-            FROM lead_latest_status
-            WHERE lead_id IN ({', '.join(lead_ids)})
-        ''')
-        filtered_customers = cur.fetchone()[0]
-        
-        # Get services for filtered leads
-        cur.execute(f'''
-            SELECT DISTINCT service_name
-            FROM lead_latest_status
-            WHERE lead_id IN ({', '.join(lead_ids)})
+            SELECT DISTINCT ON (customer_id) service_name
+            FROM lead_events
+            WHERE customer_id IN ({placeholders})
             AND service_name IS NOT NULL AND service_name != ''
-            ORDER BY service_name
-        ''')
+            ORDER BY customer_id, submitted_at DESC
+        ''', filtered_customers)
         services = [row[0] for row in cur.fetchall()]
         
-        # Get status distribution
-        cur.execute(f'''
-            SELECT current_status, COUNT(*) as count
-            FROM lead_latest_status
-            WHERE lead_id IN ({', '.join(lead_ids)})
-            GROUP BY current_status
-            ORDER BY count DESC
-        ''')
-        status_data = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
+        # Count by status for filtered customers
+        status_counts = {}
+        for cid in filtered_customers:
+            status = latest_by_customer[cid]
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        status_data = [
+            {'status': status, 'count': count}
+            for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
         
         cur.close()
         conn.close()
         
         return jsonify({
             'filtered_events': filtered_events,
-            'filtered_customers': filtered_customers,
+            'filtered_customers': len(filtered_customers),
             'services': services,
             'status_data': status_data
         }), 200
@@ -251,34 +270,32 @@ def update_lead_status():
     """Update lead to new status"""
     try:
         data = request.get_json()
-        lead_id = data.get('lead_id')
+        customer_id = data.get('customer_id')
         new_status = data.get('new_status')
         
-        if not lead_id or not new_status:
-            return jsonify({'message': 'Missing lead_id or new_status'}), 400
+        if not customer_id or not new_status:
+            return jsonify({'message': 'Missing customer_id or new_status'}), 400
         
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Get old status
+        # Get latest status for this customer
         cur.execute('''
-            SELECT current_status FROM lead_latest_status 
-            WHERE lead_id = %s
-        ''', [lead_id])
+            SELECT DISTINCT ON (customer_id) status
+            FROM lead_events
+            WHERE customer_id = %s
+            ORDER BY customer_id, submitted_at DESC
+        ''', [customer_id])
         
         result = cur.fetchone()
         old_status = result[0] if result else None
         
-        # Update latest status
+        # Add new status entry to lead_events
         cur.execute('''
-            INSERT INTO lead_latest_status 
-            (lead_id, customer_id, current_status, previous_status, last_updated)
-            VALUES (%s, %s, %s, %s, NOW())
-            ON CONFLICT (lead_id) DO UPDATE
-            SET current_status = %s,
-                previous_status = %s,
-                last_updated = NOW()
-        ''', [lead_id, lead_id, new_status, old_status, new_status, old_status])
+            INSERT INTO lead_events 
+            (customer_id, status, submitted_at, service_name)
+            VALUES (%s, %s, %s, %s)
+        ''', [customer_id, new_status, int(datetime.now().timestamp() * 1000), 'Manual Update'])
         
         conn.commit()
         cur.close()
@@ -286,7 +303,7 @@ def update_lead_status():
         
         return jsonify({
             'success': True,
-            'lead_id': lead_id,
+            'customer_id': customer_id,
             'old_status': old_status,
             'new_status': new_status,
             'message': 'Status updated successfully'
@@ -306,32 +323,40 @@ def export_csv():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Build query
-        where_clause = '1=1'
-        params = []
+        # Get latest status per customer
+        cur.execute('''
+            SELECT DISTINCT ON (customer_id) 
+                customer_id, status, submitted_at
+            FROM lead_events
+            ORDER BY customer_id, submitted_at DESC
+        ''')
         
+        latest_by_customer = {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+        
+        # Filter if needed
         if status_filter and status_filter.upper() != 'ALL STATUS':
-            where_clause = 'current_status = %s'
-            params.append(status_filter)
+            filtered_data = [
+                (cid, status, submitted_at) 
+                for cid, (status, submitted_at) in latest_by_customer.items()
+                if status == status_filter
+            ]
+        else:
+            filtered_data = [
+                (cid, status, submitted_at) 
+                for cid, (status, submitted_at) in latest_by_customer.items()
+            ]
         
-        cur.execute(f'''
-            SELECT lead_id, customer_id, current_status, last_updated
-            FROM lead_latest_status
-            WHERE {where_clause}
-            ORDER BY last_updated DESC
-        ''', params)
-        
-        rows = cur.fetchall()
         cur.close()
         conn.close()
         
         # Create CSV
         output = StringIO()
         writer = csv.writer(output)
-        writer.writerow(['Lead ID', 'Customer ID', 'Status', 'Last Updated'])
+        writer.writerow(['Customer ID', 'Latest Status', 'Last Updated'])
         
-        for row in rows:
-            writer.writerow(row)
+        for customer_id, status, submitted_at in sorted(filtered_data, key=lambda x: x[2], reverse=True):
+            dt = datetime.fromtimestamp(submitted_at / 1000) if submitted_at else 'N/A'
+            writer.writerow([customer_id, status, dt])
         
         output.seek(0)
         return send_file(
@@ -355,36 +380,34 @@ def export_json():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        where_clause = '1=1'
-        params = []
+        # Get latest status per customer
+        cur.execute('''
+            SELECT DISTINCT ON (customer_id) 
+                customer_id, status, submitted_at
+            FROM lead_events
+            ORDER BY customer_id, submitted_at DESC
+        ''')
         
+        latest_by_customer = {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+        
+        # Filter if needed
         if status_filter and status_filter.upper() != 'ALL STATUS':
-            where_clause = 'current_status = %s'
-            params.append(status_filter)
+            filtered_data = [
+                {'customer_id': cid, 'status': status, 'last_updated': datetime.fromtimestamp(submitted_at/1000).isoformat() if submitted_at else None}
+                for cid, (status, submitted_at) in latest_by_customer.items()
+                if status == status_filter
+            ]
+        else:
+            filtered_data = [
+                {'customer_id': cid, 'status': status, 'last_updated': datetime.fromtimestamp(submitted_at/1000).isoformat() if submitted_at else None}
+                for cid, (status, submitted_at) in latest_by_customer.items()
+            ]
         
-        cur.execute(f'''
-            SELECT lead_id, customer_id, current_status, last_updated
-            FROM lead_latest_status
-            WHERE {where_clause}
-            ORDER BY last_updated DESC
-        ''', params)
-        
-        rows = cur.fetchall()
         cur.close()
         conn.close()
         
-        data = [
-            {
-                'lead_id': row[0],
-                'customer_id': row[1],
-                'status': row[2],
-                'last_updated': row[3].isoformat() if row[3] else None
-            }
-            for row in rows
-        ]
-        
         return send_file(
-            StringIO(json.dumps(data, indent=2)),
+            StringIO(json.dumps(filtered_data, indent=2)),
             mimetype='application/json',
             as_attachment=True,
             download_name=f'gharfix-leads-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.json'
@@ -392,30 +415,6 @@ def export_json():
     
     except Exception as e:
         logger.error(f"Error in export_json: {str(e)}")
-        return jsonify({'message': f'Error: {str(e)}'}), 500
-
-@app.route('/api/rescrape', methods=['POST'])
-@auth_required
-def rescrape():
-    """Trigger rescrape from Bellevie"""
-    try:
-        from scraper_v2 import rescrape_all
-        
-        success = rescrape_all()
-        
-        if success:
-            return jsonify({
-                'message': 'Rescrape completed successfully',
-                'status': 'success'
-            }), 200
-        else:
-            return jsonify({
-                'message': 'Rescrape failed',
-                'status': 'error'
-            }), 500
-    
-    except Exception as e:
-        logger.error(f"Error in rescrape: {str(e)}")
         return jsonify({'message': f'Error: {str(e)}'}), 500
 
 @app.route('/api/system-status', methods=['GET'])
@@ -429,8 +428,8 @@ def system_status():
         cur.execute('SELECT COUNT(*) FROM lead_events')
         total_events = cur.fetchone()[0]
         
-        cur.execute('SELECT COUNT(DISTINCT lead_id) FROM lead_latest_status')
-        unique_leads = cur.fetchone()[0]
+        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_events')
+        unique_customers = cur.fetchone()[0]
         
         cur.close()
         conn.close()
@@ -439,7 +438,7 @@ def system_status():
             'status': 'ok',
             'database': 'connected',
             'total_events': total_events,
-            'unique_leads': unique_leads,
+            'unique_customers': unique_customers,
             'timestamp': datetime.now().isoformat()
         }), 200
     
