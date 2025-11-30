@@ -105,17 +105,21 @@ def dashboard():
 @app.route('/api/all-analytics', methods=['GET'])
 @auth_required
 def get_all_analytics():
-    """Get all analytics - MATCHES BELLEVIE COUNTS"""
+    """
+    Get all analytics - SMART COUNTS:
+    - total_lead_events = ALL events from lead_events table (matches Bellevie)
+    - unique_customers = COUNT DISTINCT from lead_latest_status (separate count)
+    """
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # COUNT 1: Total events (matches Bellevie)
+        # COUNT 1: Total lead events (matches Bellevie - ALL records)
         cur.execute('SELECT COUNT(*) FROM lead_events')
-        total_events = cur.fetchone()[0]
+        total_lead_events = cur.fetchone()[0]
         
-        # COUNT 2: Unique customers
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_latest_status')
+        # COUNT 2: Unique customers (from latest status table)
+        cur.execute('SELECT COUNT(DISTINCT lead_id) FROM lead_latest_status')
         unique_customers = cur.fetchone()[0]
         
         # Get status distribution (LATEST STATUS ONLY)
@@ -142,8 +146,8 @@ def get_all_analytics():
         conn.close()
         
         return jsonify({
-            'total_lead_events': total_events,  # ← MATCHES BELLEVIE (e.g., 4857)
-            'unique_customers': unique_customers,
+            'total_lead_events': total_lead_events,    # ← Matches Bellevie (e.g., 4857)
+            'unique_customers': unique_customers,       # ← Separate count (e.g., 3200)
             'status_distribution': status_data,
             'top_services': services_data,
             'sync_status': 'Connected to Bellevie',
@@ -191,23 +195,27 @@ def get_filtered_analytics():
                 'status_data': []
             }), 200
         
-        # Filter by service if specified
-        if service_filter and service_filter.upper() != 'ALL SERVICES':
-            cur.execute(f'''
-                SELECT COUNT(DISTINCT le.customer_id)
-                FROM lead_events le
-                WHERE le.customer_id IN ({', '.join(lead_ids)})
-                AND le.service_name = %s
-            ''', [service_filter])
-            filtered_count = cur.fetchone()[0]
-        else:
-            filtered_count = len(lead_ids)
+        # Get total events for filtered leads
+        cur.execute(f'''
+            SELECT COUNT(*)
+            FROM lead_events
+            WHERE customer_id IN ({', '.join(lead_ids)})
+        ''')
+        filtered_events = cur.fetchone()[0]
+        
+        # Get unique customers for filtered leads
+        cur.execute(f'''
+            SELECT COUNT(DISTINCT customer_id)
+            FROM lead_latest_status
+            WHERE lead_id IN ({', '.join(lead_ids)})
+        ''')
+        filtered_customers = cur.fetchone()[0]
         
         # Get services for filtered leads
         cur.execute(f'''
             SELECT DISTINCT service_name
             FROM lead_latest_status
-            WHERE customer_id IN ({', '.join(lead_ids)})
+            WHERE lead_id IN ({', '.join(lead_ids)})
             AND service_name IS NOT NULL AND service_name != ''
             ORDER BY service_name
         ''')
@@ -227,7 +235,8 @@ def get_filtered_analytics():
         conn.close()
         
         return jsonify({
-            'filtered_count': filtered_count,
+            'filtered_events': filtered_events,
+            'filtered_customers': filtered_customers,
             'services': services,
             'status_data': status_data
         }), 200
@@ -420,7 +429,7 @@ def system_status():
         cur.execute('SELECT COUNT(*) FROM lead_events')
         total_events = cur.fetchone()[0]
         
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_latest_status')
+        cur.execute('SELECT COUNT(DISTINCT lead_id) FROM lead_latest_status')
         unique_leads = cur.fetchone()[0]
         
         cur.close()
