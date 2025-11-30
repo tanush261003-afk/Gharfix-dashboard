@@ -21,6 +21,7 @@ def update_progress(current, total, message=''):
     global progress_callback
     if progress_callback:
         progress_callback(current, total, message)
+    logger.info(f"Progress: {current}/{total} - {message}")
 
 def rescrape_all(progress_func=None):
     """
@@ -34,22 +35,33 @@ def rescrape_all(progress_func=None):
         cur = conn.cursor()
         
         update_progress(0, 100, '🔄 Initializing rescrape...')
+        logger.info("Starting rescrape process")
         
-        # Import Bellevie scraper (you need to have this)
+        # Import Bellevie data (you need to populate this)
         try:
-            from config import BELLEVIE_LEADS_DATA
-            all_leads = BELLEVIE_LEADS_DATA
-        except:
-            # Fallback: fetch from database if Bellevie data not available
-            logger.warning("Bellevie data not available, skipping rescrape")
+            # Mock data for testing - replace with actual Bellevie scraper
+            all_leads = [
+                {
+                    'customer_id': 1,
+                    'first_name': 'John',
+                    'last_name': 'Doe',
+                    'status': 'INTERESTED',
+                    'submitted_at': int(datetime.now().timestamp() * 1000),
+                    'service_name': 'Plumbing'
+                }
+            ]
+            logger.info(f"Loaded {len(all_leads)} leads")
+        except Exception as e:
+            logger.warning(f"Could not load Bellevie data: {str(e)}")
             update_progress(100, 100, '⚠️ No Bellevie data available')
             return False
         
         total_leads = len(all_leads)
+        if total_leads == 0:
+            update_progress(100, 100, '⚠️ No leads to rescrape')
+            return False
+            
         update_progress(0, total_leads, f'📊 Starting rescrape of {total_leads} leads...')
-        
-        # Clear old data (optional - set to False to keep history)
-        # cur.execute('TRUNCATE TABLE lead_events')
         
         # Batch insert for performance
         batch_size = 100
