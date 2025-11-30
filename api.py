@@ -180,23 +180,30 @@ def get_all_analytics():
         cur.close()
         conn.close()
         
-        return jsonify({
-            'total_lead_events': total_lead_events,    # ✅ NOW WORKING!
-            'unique_customers': unique_customers,
-            'status_distribution': status_data,
-            'top_services': services_data,
+        # ✅ ALWAYS return these fields - NEVER empty
+        response = {
+            'total_lead_events': int(total_lead_events),
+            'unique_customers': int(unique_customers),
+            'status_distribution': status_data if status_data else [],
+            'top_services': services_data if services_data else [],
             'sync_status': 'Connected to Bellevie',
             'last_updated': datetime.now().isoformat()
-        }), 200
+        }
+        
+        logger.info(f"Analytics returned: {total_lead_events} events, {unique_customers} customers")
+        return jsonify(response), 200
     
     except Exception as e:
         logger.error(f"Error in get_all_analytics: {str(e)}")
+        # ✅ Return 0 values on error, not empty response
         return jsonify({
-            'message': f'Error: {str(e)}', 
-            'total_lead_events': 0, 
+            'total_lead_events': 0,
             'unique_customers': 0,
             'status_distribution': [],
-            'top_services': []
+            'top_services': [],
+            'sync_status': 'Error connecting',
+            'error': str(e),
+            'last_updated': datetime.now().isoformat()
         }), 200
 
 @app.route('/api/rescrape-status', methods=['GET'])
