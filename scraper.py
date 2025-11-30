@@ -27,6 +27,8 @@ def rescrape_all(progress_func=None):
     """
     Rescrape all leads from Bellevie and update lead_events table
     Uses ONLY 2 existing tables (lead_events + leads)
+    
+    ✅ FIXED: Insert into leads FIRST (foreign key requirement)
     """
     try:
         set_progress_callback(progress_func)
@@ -77,7 +79,16 @@ def rescrape_all(progress_func=None):
                 service_name = lead.get('service_name', '')
                 event_id = f"{customer_id}_{submitted_at}_{status}"
                 
-                # Insert into lead_events (for all events/history) - NO created_at field
+                # ✅ STEP 1: Insert/update leads table FIRST (foreign key requirement!)
+                cur.execute('''
+                    INSERT INTO leads (customer_id, first_name, last_name)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (customer_id) DO UPDATE
+                    SET first_name = EXCLUDED.first_name,
+                        last_name = EXCLUDED.last_name
+                ''', [customer_id, first_name, last_name])
+                
+                # ✅ STEP 2: NOW insert into lead_events (customer exists!)
                 cur.execute('''
                     INSERT INTO lead_events 
                     (event_id, customer_id, first_name, last_name, status, submitted_at, service_name)
@@ -87,15 +98,6 @@ def rescrape_all(progress_func=None):
                     event_id, customer_id, first_name, last_name, 
                     status, submitted_at, service_name
                 ])
-                
-                # Also update leads table (customer info)
-                cur.execute('''
-                    INSERT INTO leads (customer_id, first_name, last_name)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (customer_id) DO UPDATE
-                    SET first_name = EXCLUDED.first_name,
-                        last_name = EXCLUDED.last_name
-                ''', [customer_id, first_name, last_name])
                 
                 processed += 1
                 
