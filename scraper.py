@@ -77,25 +77,25 @@ def rescrape_all(progress_func=None):
                 service_name = lead.get('service_name', '')
                 event_id = f"{customer_id}_{submitted_at}_{status}"
                 
-                # Insert into lead_events (for all events/history)
+                # Insert into lead_events (for all events/history) - NO created_at field
                 cur.execute('''
                     INSERT INTO lead_events 
-                    (event_id, customer_id, first_name, last_name, status, submitted_at, service_name, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (event_id, customer_id, first_name, last_name, status, submitted_at, service_name)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (event_id) DO NOTHING
                 ''', [
                     event_id, customer_id, first_name, last_name, 
-                    status, submitted_at, service_name, datetime.now()
+                    status, submitted_at, service_name
                 ])
                 
                 # Also update leads table (customer info)
                 cur.execute('''
-                    INSERT INTO leads (customer_id, first_name, last_name, created_at)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO leads (customer_id, first_name, last_name)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT (customer_id) DO UPDATE
                     SET first_name = EXCLUDED.first_name,
                         last_name = EXCLUDED.last_name
-                ''', [customer_id, first_name, last_name, datetime.now()])
+                ''', [customer_id, first_name, last_name])
                 
                 processed += 1
                 
