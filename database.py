@@ -6,7 +6,7 @@ from datetime import datetime
 load_dotenv()
 
 def init_database():
-    """Initialize database - NO 3RD TABLE! Just use lead_events"""
+    """Initialize database - ONLY 2 TABLES (lead_events + leads)"""
     try:
         conn = psycopg.connect(os.getenv('DATABASE_URL'))
         cur = conn.cursor()
@@ -62,7 +62,7 @@ def init_database():
         print("✅ Database tables created successfully!")
         
         # ============ Get Statistics ============
-        print("\n📊 Getting database statistics...")
+        print("\n📊 Database Statistics:")
         
         cur.execute('SELECT COUNT(*) FROM lead_events')
         total_events = cur.fetchone()[0]
@@ -72,6 +72,7 @@ def init_database():
         unique_customers = cur.fetchone()[0]
         print(f"✅ Unique Customers: {unique_customers}")
         
+        # Get latest status per customer
         cur.execute('''
             SELECT DISTINCT ON (customer_id) status
             FROM lead_events
@@ -84,20 +85,17 @@ def init_database():
             status = row[0]
             status_counts[status] = status_counts.get(status, 0) + 1
         
-        print(f"\n📊 Status Breakdown (Latest Status Per Customer):")
-        for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True):
-            print(f"  {status}: {count}")
-        
-        total_sum = sum(status_counts.values())
-        print(f"\n✅ Total Unique Customers: {total_sum}")
-        print(f"💾 Total Event Records: {total_events}")
-        print(f"\n🎯 Dashboard will show:")
-        print(f"  - Total Events: {total_events} (matches Bellevie)")
-        print(f"  - Unique Customers: {unique_customers}")
-        print(f"  - Status counts: Latest status per customer")
+        if status_counts:
+            print(f"\n📊 Status Breakdown (Latest Per Customer):")
+            for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True):
+                print(f"  {status}: {count}")
         
         cur.close()
         conn.close()
+        
+        print(f"\n✅ Database ready!")
+        print(f"💾 Total Events: {total_events}")
+        print(f"👥 Unique Customers: {unique_customers}")
         
         return True
     
@@ -105,50 +103,5 @@ def init_database():
         print(f"❌ Error initializing database: {str(e)}")
         return False
 
-def get_lead_statistics():
-    """Get lead statistics"""
-    try:
-        conn = psycopg.connect(os.getenv('DATABASE_URL'))
-        cur = conn.cursor()
-        
-        # Total events
-        cur.execute('SELECT COUNT(*) FROM lead_events')
-        total_events = cur.fetchone()[0]
-        
-        # Unique customers
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_events')
-        unique_customers = cur.fetchone()[0]
-        
-        # Latest status per customer
-        cur.execute('''
-            SELECT DISTINCT ON (customer_id) status
-            FROM lead_events
-            ORDER BY customer_id, submitted_at DESC
-        ''')
-        
-        latest_statuses = cur.fetchall()
-        status_counts = {}
-        for row in latest_statuses:
-            status = row[0]
-            status_counts[status] = status_counts.get(status, 0) + 1
-        
-        cur.close()
-        conn.close()
-        
-        return {
-            'total_events': total_events,
-            'unique_customers': unique_customers,
-            'status_breakdown': status_counts
-        }
-    
-    except Exception as e:
-        print(f"❌ Error getting statistics: {str(e)}")
-        return None
-
 if __name__ == '__main__':
     init_database()
-    stats = get_lead_statistics()
-    if stats:
-        print("\n" + "="*50)
-        print("✅ DATABASE READY!")
-        print("="*50)
