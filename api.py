@@ -3,7 +3,7 @@ import jwt
 import json
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, jsonify, request, send_file, render_template_string
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 import psycopg
 from dotenv import load_dotenv
@@ -44,7 +44,6 @@ def auth_required(f):
             return jsonify({'message': 'Missing authorization token'}), 401
         
         try:
-            # Remove 'Bearer ' prefix if present
             if token.startswith('Bearer '):
                 token = token[7:]
             
@@ -106,32 +105,32 @@ def dashboard():
 @app.route('/api/all-analytics', methods=['GET'])
 @auth_required
 def get_all_analytics():
-    """Get all analytics data"""
+    """Get all analytics - MATCHES BELLEVIE COUNTS"""
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Get count from lead_current_status (only latest status per lead)
-        cur.execute('SELECT COUNT(*) FROM lead_current_status')
-        total_leads = cur.fetchone()[0]
+        # COUNT 1: Total events (matches Bellevie)
+        cur.execute('SELECT COUNT(*) FROM lead_events')
+        total_events = cur.fetchone()[0]
         
-        # Get unique customers
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_current_status')
+        # COUNT 2: Unique customers
+        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_latest_status')
         unique_customers = cur.fetchone()[0]
         
-        # Get status distribution from latest status table
+        # Get status distribution (LATEST STATUS ONLY)
         cur.execute('''
             SELECT current_status, COUNT(*) as count
-            FROM lead_current_status
+            FROM lead_latest_status
             GROUP BY current_status
             ORDER BY count DESC
         ''')
         status_data = [{'status': row[0], 'count': row[1]} for row in cur.fetchall()]
         
-        # Get top services
+        # Get services
         cur.execute('''
             SELECT service_name, COUNT(*) as count
-            FROM lead_events
+            FROM lead_latest_status
             WHERE service_name IS NOT NULL AND service_name != ''
             GROUP BY service_name
             ORDER BY count DESC
@@ -143,10 +142,11 @@ def get_all_analytics():
         conn.close()
         
         return jsonify({
-            'total_leads': total_leads,
+            'total_lead_events': total_events,  # ← MATCHES BELLEVIE (e.g., 4857)
             'unique_customers': unique_customers,
             'status_distribution': status_data,
             'top_services': services_data,
+            'sync_status': 'Connected to Bellevie',
             'last_updated': datetime.now().isoformat()
         }), 200
     
@@ -170,15 +170,15 @@ def get_filtered_analytics():
         params = []
         
         if status_filter and status_filter.upper() != 'ALL STATUS':
-            where_clauses.append('lcs.current_status = %s')
+            where_clauses.append('lls.current_status = %s')
             params.append(status_filter)
         
         where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
         
-        # Get filtered leads and their services
+        # Get filtered leads
         cur.execute(f'''
-            SELECT DISTINCT lcs.lead_id, lcs.customer_id, lcs.current_status
-            FROM lead_current_status lcs
+            SELECT DISTINCT lls.lead_id, lls.customer_id, lls.current_status
+            FROM lead_latest_status lls
             WHERE {where_sql}
         ''', params)
         
@@ -206,17 +206,17 @@ def get_filtered_analytics():
         # Get services for filtered leads
         cur.execute(f'''
             SELECT DISTINCT service_name
-            FROM lead_events
+            FROM lead_latest_status
             WHERE customer_id IN ({', '.join(lead_ids)})
             AND service_name IS NOT NULL AND service_name != ''
             ORDER BY service_name
         ''')
         services = [row[0] for row in cur.fetchall()]
         
-        # Get status distribution for filtered leads
+        # Get status distribution
         cur.execute(f'''
             SELECT current_status, COUNT(*) as count
-            FROM lead_current_status
+            FROM lead_latest_status
             WHERE lead_id IN ({', '.join(lead_ids)})
             GROUP BY current_status
             ORDER BY count DESC
@@ -239,7 +239,7 @@ def get_filtered_analytics():
 @app.route('/api/update-lead-status', methods=['PUT'])
 @auth_required
 def update_lead_status():
-    """Update lead status in smart tracking table"""
+    """Update lead to new status"""
     try:
         data = request.get_json()
         lead_id = data.get('lead_id')
@@ -252,25 +252,24 @@ def update_lead_status():
         cur = conn.cursor()
         
         # Get old status
-        cur.execute('SELECT current_status FROM lead_current_status WHERE lead_id = %s', [lead_id])
+        cur.execute('''
+            SELECT current_status FROM lead_latest_status 
+            WHERE lead_id = %s
+        ''', [lead_id])
+        
         result = cur.fetchone()
         old_status = result[0] if result else None
         
-        # Update or insert new status
+        # Update latest status
         cur.execute('''
-            INSERT INTO lead_current_status (lead_id, customer_id, current_status, previous_status, last_updated)
+            INSERT INTO lead_latest_status 
+            (lead_id, customer_id, current_status, previous_status, last_updated)
             VALUES (%s, %s, %s, %s, NOW())
             ON CONFLICT (lead_id) DO UPDATE
             SET current_status = %s,
                 previous_status = %s,
                 last_updated = NOW()
         ''', [lead_id, lead_id, new_status, old_status, new_status, old_status])
-        
-        # Also add to lead_events for audit trail
-        cur.execute('''
-            INSERT INTO lead_events (event_id, customer_id, first_name, last_name, status, submitted_at, service_name)
-            VALUES (%s, %s, '', '', %s, %s, '')
-        ''', [f'{lead_id}_{int(datetime.now().timestamp() * 1000)}', lead_id, new_status, int(datetime.now().timestamp() * 1000)])
         
         conn.commit()
         cur.close()
@@ -294,27 +293,23 @@ def export_csv():
     """Export filtered data as CSV"""
     try:
         status_filter = request.args.get('status', '').strip()
-        service_filter = request.args.get('service', '').strip()
         
         conn = get_db_connection()
         cur = conn.cursor()
         
         # Build query
-        where_clauses = []
+        where_clause = '1=1'
         params = []
         
         if status_filter and status_filter.upper() != 'ALL STATUS':
-            where_clauses.append('lcs.current_status = %s')
+            where_clause = 'current_status = %s'
             params.append(status_filter)
         
-        where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
-        
-        # Get data
         cur.execute(f'''
-            SELECT lcs.lead_id, lcs.customer_id, lcs.current_status, lcs.last_updated
-            FROM lead_current_status lcs
-            WHERE {where_sql}
-            ORDER BY lcs.last_updated DESC
+            SELECT lead_id, customer_id, current_status, last_updated
+            FROM lead_latest_status
+            WHERE {where_clause}
+            ORDER BY last_updated DESC
         ''', params)
         
         rows = cur.fetchall()
@@ -329,7 +324,6 @@ def export_csv():
         for row in rows:
             writer.writerow(row)
         
-        # Create response
         output.seek(0)
         return send_file(
             StringIO(output.getvalue()),
@@ -352,7 +346,6 @@ def export_json():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Build query
         where_clause = '1=1'
         params = []
         
@@ -362,7 +355,7 @@ def export_json():
         
         cur.execute(f'''
             SELECT lead_id, customer_id, current_status, last_updated
-            FROM lead_current_status
+            FROM lead_latest_status
             WHERE {where_clause}
             ORDER BY last_updated DESC
         ''', params)
@@ -392,6 +385,30 @@ def export_json():
         logger.error(f"Error in export_json: {str(e)}")
         return jsonify({'message': f'Error: {str(e)}'}), 500
 
+@app.route('/api/rescrape', methods=['POST'])
+@auth_required
+def rescrape():
+    """Trigger rescrape from Bellevie"""
+    try:
+        from scraper_v2 import rescrape_all
+        
+        success = rescrape_all()
+        
+        if success:
+            return jsonify({
+                'message': 'Rescrape completed successfully',
+                'status': 'success'
+            }), 200
+        else:
+            return jsonify({
+                'message': 'Rescrape failed',
+                'status': 'error'
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error in rescrape: {str(e)}")
+        return jsonify({'message': f'Error: {str(e)}'}), 500
+
 @app.route('/api/system-status', methods=['GET'])
 @auth_required
 def system_status():
@@ -400,8 +417,11 @@ def system_status():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        cur.execute('SELECT COUNT(*) FROM lead_current_status')
-        total_records = cur.fetchone()[0]
+        cur.execute('SELECT COUNT(*) FROM lead_events')
+        total_events = cur.fetchone()[0]
+        
+        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_latest_status')
+        unique_leads = cur.fetchone()[0]
         
         cur.close()
         conn.close()
@@ -409,7 +429,8 @@ def system_status():
         return jsonify({
             'status': 'ok',
             'database': 'connected',
-            'total_records': total_records,
+            'total_events': total_events,
+            'unique_leads': unique_leads,
             'timestamp': datetime.now().isoformat()
         }), 200
     
@@ -421,15 +442,8 @@ def home():
     """Home endpoint"""
     return jsonify({
         'message': 'Gharfix Analytics Dashboard API',
-        'version': '2.0',
-        'auth': 'JWT',
-        'endpoints': {
-            'login': 'POST /api/login',
-            'logout': 'POST /api/logout',
-            'dashboard': 'GET /dashboard',
-            'analytics': 'GET /api/all-analytics',
-            'filtered': 'GET /api/filtered-analytics?status=X&service=Y'
-        }
+        'version': '3.0',
+        'sync': 'Connected to Bellevie'
     }), 200
 
 if __name__ == '__main__':
