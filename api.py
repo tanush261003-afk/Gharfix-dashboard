@@ -120,7 +120,7 @@ def get_all_analytics():
     """
     Get analytics using ONLY lead_events table:
     - total_lead_events = COUNT(*) from lead_events (matches Bellevie)
-    - unique_customers = COUNT(DISTINCT customer_id) from lead_events (separate count)
+    - unique_customers = COUNT(DISTINCT customer_id) from lead_events
     """
     try:
         conn = get_db_connection()
@@ -136,7 +136,7 @@ def get_all_analytics():
         unique_result = cur.fetchone()
         unique_customers = unique_result[0] if unique_result else 0
         
-        # Get latest status per customer (GROUP BY customer, ORDER BY submitted_at DESC)
+        # Get latest status per customer
         cur.execute('''
             SELECT DISTINCT ON (customer_id) 
                 customer_id, status, submitted_at
@@ -181,9 +181,9 @@ def get_all_analytics():
         conn.close()
         
         return jsonify({
-            'total_lead_events': total_lead_events,    # ← ALL records (matches Bellevie)
-            'unique_customers': unique_customers,       # ← DISTINCT customers
-            'status_distribution': status_data,         # ← Latest status per customer
+            'total_lead_events': total_lead_events,    # ✅ NOW WORKING!
+            'unique_customers': unique_customers,
+            'status_distribution': status_data,
             'top_services': services_data,
             'sync_status': 'Connected to Bellevie',
             'last_updated': datetime.now().isoformat()
@@ -191,7 +191,13 @@ def get_all_analytics():
     
     except Exception as e:
         logger.error(f"Error in get_all_analytics: {str(e)}")
-        return jsonify({'message': f'Error: {str(e)}', 'total_lead_events': 0, 'unique_customers': 0}), 200
+        return jsonify({
+            'message': f'Error: {str(e)}', 
+            'total_lead_events': 0, 
+            'unique_customers': 0,
+            'status_distribution': [],
+            'top_services': []
+        }), 200
 
 @app.route('/api/rescrape-status', methods=['GET'])
 @auth_required
@@ -209,7 +215,8 @@ def rescrape():
     # Start rescrape in background thread
     def run_rescrape():
         try:
-            from scraper_final import rescrape_all
+            from scraper import rescrape_all
+            RESCRAPE_STATUS['start_time'] = datetime.now()
             rescrape_all(update_progress)
         except Exception as e:
             logger.error(f"Error in rescrape: {str(e)}")
@@ -233,15 +240,16 @@ def update_progress(current, total, message):
     
     if total > 0:
         RESCRAPE_STATUS['progress'] = int((current / total) * 100)
-        if current > 0:
+        if current > 0 and RESCRAPE_STATUS['start_time']:
             elapsed = (datetime.now() - RESCRAPE_STATUS['start_time']).total_seconds()
-            rate = current / elapsed if elapsed > 0 else 0
-            remaining = (total - current) / rate if rate > 0 else 0
-            RESCRAPE_STATUS['estimated_time_remaining'] = int(remaining)
+            if elapsed > 0:
+                rate = current / elapsed
+                remaining = (total - current) / rate if rate > 0 else 0
+                RESCRAPE_STATUS['estimated_time_remaining'] = int(remaining)
     
     if current >= total:
         RESCRAPE_STATUS['is_running'] = False
-        RESCRAPE_STATUS['message'] = 'Rescrape completed!'
+        RESCRAPE_STATUS['message'] = '✅ Rescrape completed!'
 
 @app.route('/api/system-status', methods=['GET'])
 @auth_required
