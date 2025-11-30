@@ -24,8 +24,7 @@ def init_database():
                 last_name VARCHAR(100),
                 status VARCHAR(50),
                 submitted_at BIGINT,
-                service_name VARCHAR(100),
-                created_at TIMESTAMP DEFAULT NOW()
+                service_name VARCHAR(100)
             )
         ''')
         
@@ -36,8 +35,7 @@ def init_database():
                 id SERIAL PRIMARY KEY,
                 customer_id INTEGER UNIQUE,
                 first_name VARCHAR(100),
-                last_name VARCHAR(100),
-                created_at TIMESTAMP DEFAULT NOW()
+                last_name VARCHAR(100)
             )
         ''')
         
