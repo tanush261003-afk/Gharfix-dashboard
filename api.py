@@ -1,299 +1,308 @@
+"""
+Gharfix API Server - Flask Backend
+Handles authentication, data retrieval, and rescrape operations
+"""
 import os
-import jwt
 import json
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, jsonify, request, send_file
-from flask_cors import CORS
-import psycopg
-from dotenv import load_dotenv
-import csv
-from io import StringIO
-import logging
-from threading import Thread
+import jwt
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from flask import Flask, request, jsonify, render_template, send_file
+from werkzeug.security import generate_password_hash, check_password_hash
+from celery import Celery
+from celery.result import AsyncResult
 
-load_dotenv()
+# Initialize Flask app
+app = Flask(__name__, template_folder='.', static_folder='.')
 
-app = Flask(__name__)
-CORS(app)
-app.config['JSON_SORT_KEYS'] = False
+# Configuration
+ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
+SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost/gharfix')
 
-# JWT Configuration
-JWT_SECRET = os.getenv('JWT_SECRET', 'gharfix_secret_key_2025_analytics')
-JWT_ALGORITHM = 'HS256'
-TOKEN_EXPIRY = 3600  # 1 hour
+app.config['SECRET_KEY'] = SECRET_KEY
 
-# Credentials
-VALID_USERNAME = 'Gharfix_analyst999'
-VALID_PASSWORD = 'Gharfix@314159'
+# Initialize Celery
+celery_app = Celery(app.name)
+celery_app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 
-# Global rescrape status
-RESCRAPE_STATUS = {
-    'is_running': False,
-    'progress': 0,
-    'total': 0,
-    'current': 0,
-    'message': 'Ready',
-    'start_time': None,
-    'estimated_time_remaining': 0
-}
+# Database connection
+def get_db():
+    """Create database connection"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = False
+        return conn
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        return None
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-def get_db_connection():
-    """Get database connection"""
-    return psycopg.connect(os.getenv('DATABASE_URL'))
-
-def auth_required(f):
-    """Decorator to check JWT token"""
+# JWT Authentication decorator
+def token_required(f):
     @wraps(f)
-    def decorated_function(*args, **kwargs):
+    def decorated(*args, **kwargs):
         token = request.headers.get('Authorization')
-        
         if not token:
-            return jsonify({'message': 'Missing authorization token'}), 401
+            return jsonify({'error': 'Missing token'}), 401
         
         try:
-            if token.startswith('Bearer '):
-                token = token[7:]
-            
-            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            request.user = payload
+            # Extract Bearer token
+            token = token.replace('Bearer ', '')
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            current_user = data.get('username')
         except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token expired'}), 401
+            return jsonify({'error': 'Token expired'}), 401
         except jwt.InvalidTokenError:
-            return jsonify({'message': 'Invalid token'}), 401
+            return jsonify({'error': 'Invalid token'}), 401
         
-        return f(*args, **kwargs)
-    
-    return decorated_function
+        return f(current_user, *args, **kwargs)
+    return decorated
 
-@app.route('/api/login', methods=['POST'])
+# Routes
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Login endpoint - returns JWT token"""
+    if request.method == 'GET':
+        return render_template('dashboard_advanced.html')
+    
     data = request.get_json()
-    username = data.get('username', '')
-    password = data.get('password', '')
+    username = data.get('username')
+    password = data.get('password')
     
-    # Case-sensitive check
-    if username != VALID_USERNAME or password != VALID_PASSWORD:
-        return jsonify({'message': 'Invalid credentials'}), 401
+    # Validate credentials
+    if username != ADMIN_USERNAME or password != ADMIN_PASSWORD:
+        return jsonify({'error': 'Invalid credentials'}), 401
     
-    # Create JWT token
-    payload = {
+    # Generate JWT token
+    token = jwt.encode({
         'username': username,
-        'iat': datetime.utcnow(),
-        'exp': datetime.utcnow() + timedelta(seconds=TOKEN_EXPIRY)
-    }
+        'exp': datetime.utcnow() + timedelta(days=30)
+    }, app.config['SECRET_KEY'], algorithm='HS256')
     
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    
-    return jsonify({
-        'token': token,
-        'expires_in': TOKEN_EXPIRY,
-        'message': 'Login successful'
-    }), 200
-
-@app.route('/api/logout', methods=['POST'])
-@auth_required
-def logout():
-    """Logout endpoint"""
-    return jsonify({'message': 'Logged out successfully'}), 200
-
-@app.route('/login')
-def login_page():
-    """Serve login page"""
-    with open('login.html', 'r') as f:
-        return f.read()
+    return jsonify({'token': token}), 200
 
 @app.route('/dashboard')
 def dashboard():
-    """Serve dashboard"""
-    with open('dashboard_advanced.html', 'r') as f:
-        return f.read()
+    return render_template('dashboard_advanced.html')
 
 @app.route('/api/all-analytics', methods=['GET'])
-@auth_required
-def get_all_analytics():
-    """
-    Get analytics using ONLY lead_events table:
-    - total_lead_events = COUNT(*) from lead_events (matches Bellevie)
-    - unique_customers = COUNT(DISTINCT customer_id) from lead_events
-    """
+@token_required
+def get_all_analytics(current_user):
+    """Get all analytics data"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
         
-        # COUNT 1: Total lead events (ALL records - matches Bellevie)
-        cur.execute('SELECT COUNT(*) FROM lead_events')
-        total_result = cur.fetchone()
-        total_lead_events = total_result[0] if total_result else 0
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        # COUNT 2: Unique customers (from lead_events, distinct)
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_events')
-        unique_result = cur.fetchone()
-        unique_customers = unique_result[0] if unique_result else 0
+        # Get total lead events
+        cur.execute('SELECT COUNT(*) as count FROM lead_events')
+        total_lead_events = cur.fetchone()['count']
         
-        # Get latest status per customer
+        # Get unique customers
+        cur.execute('SELECT COUNT(DISTINCT customer_id) as count FROM leads')
+        unique_customers = cur.fetchone()['count']
+        
+        # Get status distribution
         cur.execute('''
-            SELECT DISTINCT ON (customer_id) 
-                customer_id, status, submitted_at
+            SELECT status, COUNT(*) as count
             FROM lead_events
-            ORDER BY customer_id, submitted_at DESC
+            GROUP BY status
+            ORDER BY count DESC
         ''')
+        status_distribution = [{'status': row['status'], 'count': row['count']} 
+                              for row in cur.fetchall()]
         
-        latest_statuses = cur.fetchall()
-        
-        # Count by latest status
-        status_counts = {}
-        for row in latest_statuses:
-            status = row[1]
-            status_counts[status] = status_counts.get(status, 0) + 1
-        
-        status_data = [
-            {'status': status, 'count': count} 
-            for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True)
-        ]
-        
-        # Get services (latest per customer)
+        # Get top services
         cur.execute('''
-            SELECT DISTINCT ON (customer_id) 
-                customer_id, service_name
+            SELECT service_name as service, COUNT(*) as count
             FROM lead_events
-            WHERE service_name IS NOT NULL AND service_name != ''
-            ORDER BY customer_id, submitted_at DESC
+            GROUP BY service_name
+            ORDER BY count DESC
+            LIMIT 20
         ''')
-        
-        services_data_raw = cur.fetchall()
-        services_count = {}
-        for row in services_data_raw:
-            service = row[1]
-            services_count[service] = services_count.get(service, 0) + 1
-        
-        services_data = [
-            {'service': service, 'count': count}
-            for service, count in sorted(services_count.items(), key=lambda x: x[1], reverse=True)
-        ][:20]
+        top_services = [{'service': row['service'], 'count': row['count']} 
+                       for row in cur.fetchall()]
         
         cur.close()
         conn.close()
         
-        # ✅ ALWAYS return these fields - NEVER empty
-        response = {
-            'total_lead_events': int(total_lead_events),
-            'unique_customers': int(unique_customers),
-            'status_distribution': status_data if status_data else [],
-            'top_services': services_data if services_data else [],
+        return jsonify({
+            'total_lead_events': total_lead_events,
+            'unique_customers': unique_customers,
+            'status_distribution': status_distribution,
+            'top_services': top_services,
             'sync_status': 'Connected to Bellevie',
             'last_updated': datetime.now().isoformat()
-        }
-        
-        logger.info(f"Analytics returned: {total_lead_events} events, {unique_customers} customers")
-        return jsonify(response), 200
+        }), 200
     
     except Exception as e:
-        logger.error(f"Error in get_all_analytics: {str(e)}")
-        # ✅ Return 0 values on error, not empty response
-        return jsonify({
-            'total_lead_events': 0,
-            'unique_customers': 0,
-            'status_distribution': [],
-            'top_services': [],
-            'sync_status': 'Error connecting',
-            'error': str(e),
-            'last_updated': datetime.now().isoformat()
-        }), 200
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/rescrape-status', methods=['GET'])
-@auth_required
-def rescrape_status():
-    """Get rescrape status with progress bar"""
-    return jsonify(RESCRAPE_STATUS), 200
-
-@app.route('/api/rescrape', methods=['POST'])
-@auth_required
-def rescrape():
-    """Trigger rescrape from Bellevie"""
-    if RESCRAPE_STATUS['is_running']:
-        return jsonify({'message': 'Rescrape already in progress'}), 409
-    
-    # Start rescrape in background thread
-    def run_rescrape():
-        try:
-            from scraper import rescrape_all
-            RESCRAPE_STATUS['start_time'] = datetime.now()
-            rescrape_all(update_progress)
-        except Exception as e:
-            logger.error(f"Error in rescrape: {str(e)}")
-            RESCRAPE_STATUS['is_running'] = False
-            RESCRAPE_STATUS['message'] = f'Error: {str(e)}'
-    
-    thread = Thread(target=run_rescrape, daemon=True)
-    thread.start()
-    
-    return jsonify({
-        'message': 'Rescrape started',
-        'status': 'success'
-    }), 200
-
-def update_progress(current, total, message):
-    """Update rescrape progress"""
-    RESCRAPE_STATUS['is_running'] = True
-    RESCRAPE_STATUS['current'] = current
-    RESCRAPE_STATUS['total'] = total
-    RESCRAPE_STATUS['message'] = message
-    
-    if total > 0:
-        RESCRAPE_STATUS['progress'] = int((current / total) * 100)
-        if current > 0 and RESCRAPE_STATUS['start_time']:
-            elapsed = (datetime.now() - RESCRAPE_STATUS['start_time']).total_seconds()
-            if elapsed > 0:
-                rate = current / elapsed
-                remaining = (total - current) / rate if rate > 0 else 0
-                RESCRAPE_STATUS['estimated_time_remaining'] = int(remaining)
-    
-    if current >= total:
-        RESCRAPE_STATUS['is_running'] = False
-        RESCRAPE_STATUS['message'] = '✅ Rescrape completed!'
-
-@app.route('/api/system-status', methods=['GET'])
-@auth_required
-def system_status():
-    """Get system status"""
+@app.route('/api/filtered-analytics', methods=['GET'])
+@token_required
+def get_filtered_analytics(current_user):
+    """Get filtered analytics data"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        status = request.args.get('status', '')
+        service = request.args.get('service', '')
         
-        cur.execute('SELECT COUNT(*) FROM lead_events')
-        total_events = cur.fetchone()[0]
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
         
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_events')
-        unique_customers = cur.fetchone()[0]
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Build query based on filters
+        where_clause = 'WHERE 1=1'
+        params = []
+        
+        if status:
+            where_clause += ' AND status = %s'
+            params.append(status)
+        
+        if service:
+            where_clause += ' AND service_name = %s'
+            params.append(service)
+        
+        # Get total lead events (filtered)
+        query = f'SELECT COUNT(*) as count FROM lead_events {where_clause}'
+        cur.execute(query, params)
+        total_lead_events = cur.fetchone()['count']
+        
+        # Get unique customers (filtered)
+        query = f'''
+            SELECT COUNT(DISTINCT customer_id) as count 
+            FROM lead_events {where_clause}
+        '''
+        cur.execute(query, params)
+        unique_customers = cur.fetchone()['count']
+        
+        # Get status distribution (filtered)
+        query = f'''
+            SELECT status, COUNT(*) as count
+            FROM lead_events {where_clause}
+            GROUP BY status
+            ORDER BY count DESC
+        '''
+        cur.execute(query, params)
+        status_distribution = [{'status': row['status'], 'count': row['count']} 
+                              for row in cur.fetchall()]
+        
+        # Get top services (filtered)
+        query = f'''
+            SELECT service_name as service, COUNT(*) as count
+            FROM lead_events {where_clause}
+            GROUP BY service_name
+            ORDER BY count DESC
+            LIMIT 20
+        '''
+        cur.execute(query, params)
+        top_services = [{'service': row['service'], 'count': row['count']} 
+                       for row in cur.fetchall()]
         
         cur.close()
         conn.close()
         
         return jsonify({
-            'status': 'ok',
-            'database': 'connected',
-            'total_events': total_events,
+            'total_lead_events': total_lead_events,
             'unique_customers': unique_customers,
-            'timestamp': datetime.now().isoformat()
+            'status_distribution': status_distribution,
+            'top_services': top_services,
+            'sync_status': 'Connected to Bellevie',
+            'last_updated': datetime.now().isoformat()
         }), 200
     
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/', methods=['GET'])
-def home():
-    """Home endpoint"""
-    return jsonify({
-        'message': 'Gharfix Analytics Dashboard API',
-        'version': '4.0',
-        'sync': 'Connected to Bellevie'
-    }), 200
+@app.route('/api/rescrape', methods=['POST'])
+@token_required
+def trigger_rescrape(current_user):
+    """Trigger rescrape task"""
+    try:
+        from tasks import rescrape_task
+        task = rescrape_task.apply_async()
+        return jsonify({
+            'status': 'success',
+            'message': 'Rescrape started',
+            'task_id': task.id
+        }), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
+@app.route('/api/rescrape-status/<task_id>', methods=['GET'])
+@token_required
+def get_rescrape_status(current_user, task_id):
+    """Get rescrape task status"""
+    try:
+        from celery.result import AsyncResult
+        task = AsyncResult(task_id, app=celery_app)
+        
+        return jsonify({
+            'status': task.state,
+            'result': task.result if task.state == 'SUCCESS' else None,
+            'progress': task.info if task.state == 'PROGRESS' else 0
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download/<format_type>', methods=['GET'])
+@token_required
+def download_data(current_user, format_type):
+    """Download data as CSV or JSON"""
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get all lead events
+        cur.execute('''
+            SELECT event_id, customer_id, first_name, last_name, 
+                   status, submitted_at, service_name
+            FROM lead_events
+            ORDER BY submitted_at DESC
+        ''')
+        data = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        if format_type == 'csv':
+            # Generate CSV
+            import io
+            output = io.StringIO()
+            output.write('event_id,customer_id,first_name,last_name,status,submitted_at,service_name\n')
+            for row in data:
+                output.write(f'{row["event_id"]},{row["customer_id"]},{row["first_name"]},{row["last_name"]},{row["status"]},{row["submitted_at"]},{row["service_name"]}\n')
+            
+            return send_file(
+                io.BytesIO(output.getvalue().encode()),
+                mimetype='text/csv',
+                as_attachment=True,
+                download_name=f'gharfix-leads-{datetime.now().strftime("%Y-%m-%d")}.csv'
+            )
+        
+        elif format_type == 'json':
+            return jsonify(data), 200
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(500)
+def server_error(error):
+    return jsonify({'error': 'Server error'}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 10000)), debug=False)
+    app.run(debug=False, host='0.0.0.0', port=5000)
