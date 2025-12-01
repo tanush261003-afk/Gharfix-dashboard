@@ -1,141 +1,241 @@
-import psycopg
+"""
+Gharfix Scraper - Bellevie Lead Data Extraction
+✅ CRITICAL FIX: Inserts into leads table FIRST (foreign key requirement)
+"""
 import os
-from dotenv import load_dotenv
+import json
+import time
 from datetime import datetime
-import logging
+import requests
+import psycopg2
+from psycopg2.extras import execute_batch
 
-load_dotenv()
+# Configuration
+BELLEVIE_API = os.getenv('BELLEVIE_API', 'https://www.bellevue.live/api/')
+BELLEVIE_TOKEN = os.getenv('BELLEVIE_TOKEN', 'your-token-here')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost/gharfix')
+BATCH_SIZE = 100
 
-logger = logging.getLogger(__name__)
+def get_db():
+    """Create database connection"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = False
+        return conn
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        return None
 
-# Progress callback - will be injected by API
-progress_callback = None
+def fetch_leads():
+    """Fetch leads from Bellevie API"""
+    try:
+        headers = {'Authorization': f'Bearer {BELLEVIE_TOKEN}'}
+        response = requests.get(f'{BELLEVIE_API}leads/', headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Error fetching leads: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"Error fetching leads: {e}")
+        return []
 
-def set_progress_callback(callback):
-    """Set the progress callback function"""
-    global progress_callback
-    progress_callback = callback
-
-def update_progress(current, total, message=''):
-    """Update progress via callback"""
-    global progress_callback
-    if progress_callback:
-        progress_callback(current, total, message)
-    logger.info(f"Progress: {current}/{total} - {message}")
-
-def rescrape_all(progress_func=None):
+def scrape_leads(progress_callback=None):
     """
-    Rescrape all leads from Bellevie and update lead_events table
-    Uses ONLY 2 existing tables (lead_events + leads)
+    Scrape leads from Bellevie and store in database
     
-    ✅ FIXED: Insert into leads FIRST (foreign key requirement)
+    ✅ KEY FIX: Insert into leads table FIRST (foreign key requirement!)
+    Then insert into lead_events table
     """
     try:
-        set_progress_callback(progress_func)
+        print("🔄 Starting rescrape...")
         
-        conn = psycopg.connect(os.getenv('DATABASE_URL'))
+        # Fetch leads from Bellevie
+        leads = fetch_leads()
+        if not leads:
+            print("❌ No leads fetched from Bellevie")
+            if progress_callback:
+                progress_callback({"current": 0, "total": 0, "message": "No leads to scrape"})
+            return {"status": "error", "message": "No leads fetched"}
+        
+        total_leads = len(leads)
+        print(f"📊 Found {total_leads} leads to process")
+        
+        # Connect to database
+        conn = get_db()
+        if not conn:
+            print("❌ Database connection failed")
+            return {"status": "error", "message": "Database connection failed"}
+        
         cur = conn.cursor()
         
-        update_progress(0, 100, '🔄 Initializing rescrape...')
-        logger.info("Starting rescrape process")
+        total_events = 0
+        unique_customers = set()
         
-        # Import Bellevie data (you need to populate this)
-        try:
-            # Mock data for testing - replace with actual Bellevie scraper
-            all_leads = [
-                {
-                    'customer_id': 1,
-                    'first_name': 'John',
-                    'last_name': 'Doe',
-                    'status': 'INTERESTED',
-                    'submitted_at': int(datetime.now().timestamp() * 1000),
-                    'service_name': 'Plumbing'
-                }
-            ]
-            logger.info(f"Loaded {len(all_leads)} leads")
-        except Exception as e:
-            logger.warning(f"Could not load Bellevie data: {str(e)}")
-            update_progress(100, 100, '⚠️ No Bellevie data available')
-            return False
-        
-        total_leads = len(all_leads)
-        if total_leads == 0:
-            update_progress(100, 100, '⚠️ No leads to rescrape')
-            return False
+        # Process in batches
+        for i in range(0, total_leads, BATCH_SIZE):
+            batch = leads[i:i+BATCH_SIZE]
+            batch_num = i // BATCH_SIZE + 1
+            total_batches = (total_leads + BATCH_SIZE - 1) // BATCH_SIZE
             
-        update_progress(0, total_leads, f'📊 Starting rescrape of {total_leads} leads...')
-        
-        # Batch insert for performance
-        batch_size = 100
-        processed = 0
-        
-        for i, lead in enumerate(all_leads):
-            try:
-                customer_id = lead.get('customer_id')
-                status = lead.get('status', 'UNKNOWN')
-                first_name = lead.get('first_name', '')
-                last_name = lead.get('last_name', '')
-                submitted_at = lead.get('submitted_at', int(datetime.now().timestamp() * 1000))
-                service_name = lead.get('service_name', '')
-                event_id = f"{customer_id}_{submitted_at}_{status}"
-                
-                # ✅ STEP 1: Insert/update leads table FIRST (foreign key requirement!)
-                cur.execute('''
-                    INSERT INTO leads (customer_id, first_name, last_name)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (customer_id) DO UPDATE
-                    SET first_name = EXCLUDED.first_name,
-                        last_name = EXCLUDED.last_name
-                ''', [customer_id, first_name, last_name])
-                
-                # ✅ STEP 2: NOW insert into lead_events (customer exists!)
-                cur.execute('''
-                    INSERT INTO lead_events 
-                    (event_id, customer_id, first_name, last_name, status, submitted_at, service_name)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (event_id) DO NOTHING
-                ''', [
-                    event_id, customer_id, first_name, last_name, 
-                    status, submitted_at, service_name
-                ])
-                
-                processed += 1
-                
-                # Commit in batches
-                if processed % batch_size == 0:
-                    conn.commit()
-                    percentage = int((processed / total_leads) * 100)
-                    update_progress(
-                        processed, total_leads, 
-                        f'📥 Processed {processed}/{total_leads} ({percentage}%)...'
-                    )
+            # Report progress
+            if progress_callback:
+                progress_callback({
+                    "current": min(i + BATCH_SIZE, total_leads),
+                    "total": total_leads,
+                    "message": f"Processing batch {batch_num}/{total_batches}"
+                })
+            
+            leads_to_insert = []
+            events_to_insert = []
+            
+            # Process each lead in batch
+            for lead in batch:
+                try:
+                    customer_id = lead.get('id')
+                    first_name = lead.get('first_name', '')
+                    last_name = lead.get('last_name', '')
                     
-            except Exception as e:
-                logger.error(f"Error processing lead {i}: {str(e)}")
-                continue
-        
-        # Final commit
-        conn.commit()
-        
-        # Get final statistics
-        cur.execute('SELECT COUNT(*) FROM lead_events')
-        total_events = cur.fetchone()[0]
-        
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_events')
-        unique_customers = cur.fetchone()[0]
+                    if not customer_id:
+                        continue
+                    
+                    # ✅ STEP 1: Prepare leads table INSERT
+                    # (We'll insert leads FIRST to satisfy foreign key constraint)
+                    leads_to_insert.append((
+                        customer_id,
+                        first_name,
+                        last_name
+                    ))
+                    
+                    # ✅ STEP 2: Prepare lead_events table INSERT
+                    # Extract lead events/interactions
+                    events = lead.get('interactions', [])
+                    if not events:
+                        events = [{}]  # At least one event entry
+                    
+                    for event in events:
+                        event_id = event.get('id', f"{customer_id}_{time.time()}")
+                        status = event.get('status', lead.get('status', 'UNKNOWN'))
+                        submitted_at = event.get('date', lead.get('created_at', datetime.now().isoformat()))
+                        service_name = event.get('service', lead.get('service', 'General'))
+                        
+                        events_to_insert.append((
+                            str(event_id),
+                            customer_id,
+                            first_name,
+                            last_name,
+                            status,
+                            submitted_at,
+                            service_name
+                        ))
+                        
+                        total_events += 1
+                        unique_customers.add(customer_id)
+                
+                except Exception as e:
+                    print(f"Error processing lead {lead.get('id')}: {e}")
+                    continue
+            
+            # ✅ CRITICAL: Insert into leads FIRST (foreign key requirement!)
+            if leads_to_insert:
+                try:
+                    execute_batch(
+                        cur,
+                        '''
+                        INSERT INTO leads (customer_id, first_name, last_name)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (customer_id) DO UPDATE
+                        SET first_name = EXCLUDED.first_name,
+                            last_name = EXCLUDED.last_name
+                        ''',
+                        leads_to_insert,
+                        page_size=BATCH_SIZE
+                    )
+                    conn.commit()
+                    print(f"✅ Inserted {len(leads_to_insert)} leads into leads table")
+                except Exception as e:
+                    print(f"❌ Error inserting leads: {e}")
+                    conn.rollback()
+            
+            # ✅ STEP 2: NOW insert into lead_events (customer exists!)
+            if events_to_insert:
+                try:
+                    execute_batch(
+                        cur,
+                        '''
+                        INSERT INTO lead_events 
+                        (event_id, customer_id, first_name, last_name, status, submitted_at, service_name)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (event_id) DO NOTHING
+                        ''',
+                        events_to_insert,
+                        page_size=BATCH_SIZE
+                    )
+                    conn.commit()
+                    print(f"✅ Inserted {len(events_to_insert)} events into lead_events table")
+                except Exception as e:
+                    print(f"❌ Error inserting events: {e}")
+                    conn.rollback()
         
         cur.close()
         conn.close()
         
-        update_progress(
-            total_leads, total_leads,
-            f'✅ Rescrape complete! {total_events} total events, {unique_customers} unique customers'
-        )
+        message = f"✅ Rescrape complete! {total_events} total events, {len(unique_customers)} unique customers"
+        print(message)
         
-        logger.info(f"Rescrape completed: {total_events} events, {unique_customers} customers")
-        return True
+        if progress_callback:
+            progress_callback({
+                "current": total_leads,
+                "total": total_leads,
+                "message": message
+            })
         
+        return {
+            "status": "success",
+            "message": message,
+            "total_events": total_events,
+            "unique_customers": len(unique_customers)
+        }
+    
     except Exception as e:
-        logger.error(f"Error in rescrape_all: {str(e)}")
-        update_progress(0, 100, f'❌ Error: {str(e)}')
-        return False
+        print(f"❌ Fatal error during scrape: {e}")
+        return {"status": "error", "message": str(e)}
+
+def test_connection():
+    """Test database and API connections"""
+    print("🔍 Testing connections...")
+    
+    # Test database
+    conn = get_db()
+    if conn:
+        print("✅ Database connection: OK")
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM lead_events")
+        count = cur.fetchone()[0]
+        print(f"   - Lead events in DB: {count}")
+        cur.close()
+        conn.close()
+    else:
+        print("❌ Database connection: FAILED")
+    
+    # Test Bellevie API
+    try:
+        headers = {'Authorization': f'Bearer {BELLEVIE_TOKEN}'}
+        response = requests.head(f'{BELLEVIE_API}leads/', headers=headers, timeout=10)
+        if response.status_code in [200, 405]:
+            print("✅ Bellevie API connection: OK")
+        else:
+            print(f"❌ Bellevie API connection: Status {response.status_code}")
+    except Exception as e:
+        print(f"❌ Bellevie API connection: FAILED ({e})")
+
+if __name__ == '__main__':
+    # Test connections
+    test_connection()
+    
+    # Run scrape
+    print("\n" + "="*50)
+    result = scrape_leads()
+    print("="*50)
+    print(f"Result: {result}")
