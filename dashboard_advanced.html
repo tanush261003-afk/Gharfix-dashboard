@@ -3,659 +3,665 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gharfix Analytics Dashboard - Lead Events</title>
+    <title>Gharfix Dashboard</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
         }
-
+        
+        .navbar {
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .navbar h1 {
+            font-size: 20px;
+            color: #667eea;
+        }
+        
+        .navbar button {
+            background: #ef5350;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .navbar button:hover {
+            background: #e53935;
+        }
+        
         .container {
             max-width: 1400px;
             margin: 0 auto;
+            padding: 20px;
         }
-
-        header {
-            color: white;
-            margin-bottom: 30px;
-            text-align: center;
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
         }
-
-        header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-        }
-
-        header p {
-            font-size: 1.1em;
-            opacity: 0.95;
-        }
-
-        .dashboard {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            backdrop-filter: blur(10px);
-        }
-
-        .card-title {
-            font-size: 1.1em;
+        
+        .header h2 {
+            font-size: 24px;
             color: #333;
-            margin-bottom: 15px;
-            font-weight: 600;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
         }
-
-        .metric {
-            margin: 15px 0;
-            padding: 10px;
-            background: #f8f9fa;
+        
+        .rescrape-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 20px;
+            border: none;
             border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: transform 0.2s;
+        }
+        
+        .rescrape-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .rescrape-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+        
+        .stat-card h3 {
+            color: #999;
+            font-size: 13px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #333;
+        }
+        
+        .filters-section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 25px;
+        }
+        
+        .filters-section h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .filter-group label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        
+        .filter-group select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+        }
+        
+        .filter-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .filter-buttons button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        .btn-apply {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-apply:hover {
+            background: #5568d3;
+        }
+        
+        .btn-reset {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        .btn-reset:hover {
+            background: #e0e0e0;
+        }
+        
+        .table-section {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        
+        .table-header {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-
-        .metric-label {
-            color: #666;
-            font-size: 0.95em;
-        }
-
-        .metric-value {
-            color: #667eea;
-            font-size: 1.8em;
-            font-weight: bold;
-        }
-
-        .controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .control-group {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-        }
-
-        .control-label {
-            display: block;
-            margin-bottom: 10px;
+        
+        .table-header h3 {
+            font-size: 16px;
             color: #333;
-            font-weight: 600;
-            font-size: 0.95em;
         }
-
-        select, button {
+        
+        .table-wrapper {
+            overflow-x: auto;
+        }
+        
+        table {
             width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 1em;
-            cursor: pointer;
-            transition: all 0.3s ease;
+            border-collapse: collapse;
         }
-
-        select {
-            background-color: white;
-            color: #333;
+        
+        thead {
+            background: #f9f9f9;
+            border-bottom: 2px solid #e0e0e0;
         }
-
-        select:hover {
-            border-color: #667eea;
-            box-shadow: 0 0 10px rgba(102, 126, 234, 0.2);
-        }
-
-        select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 15px rgba(102, 126, 234, 0.4);
-        }
-
-        button {
-            background: #667eea;
-            color: white;
+        
+        thead th {
+            padding: 15px;
+            text-align: left;
             font-weight: 600;
-            border: none;
-            transition: all 0.3s ease;
+            color: #666;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
-
-        button:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        
+        tbody td {
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
         }
-
-        button:active {
-            transform: translateY(0);
+        
+        tbody tr:hover {
+            background: #f9f9f9;
         }
-
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            background: #764ba2;
-        }
-
-        .btn-secondary:hover {
-            background: #653a8a;
-        }
-
-        .btn-success {
-            background: #2ecc71;
-        }
-
-        .btn-success:hover {
-            background: #27ae60;
-        }
-
-        .status-chart {
-            margin-top: 20px;
-        }
-
-        .status-bar {
-            display: flex;
-            align-items: center;
-            margin: 12px 0;
-            gap: 10px;
-        }
-
-        .status-label {
-            min-width: 150px;
-            color: #333;
-            font-weight: 500;
-            font-size: 0.9em;
-        }
-
-        .status-bar-bg {
-            flex: 1;
-            height: 30px;
-            background: #e0e0e0;
-            border-radius: 6px;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .status-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding-right: 10px;
-            color: white;
+        
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
             font-weight: 600;
-            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
-
-        .service-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-            margin-top: 15px;
+        
+        .status-interested {
+            background: #e3f2fd;
+            color: #1565c0;
         }
-
-        .service-item {
-            background: #f0f4ff;
-            padding: 12px;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
+        
+        .status-not-interested {
+            background: #ffebee;
+            color: #c62828;
         }
-
-        .service-name {
-            color: #333;
-            font-weight: 600;
-            font-size: 0.9em;
+        
+        .status-contacted {
+            background: #f3e5f5;
+            color: #6a1b9a;
         }
-
-        .service-count {
-            color: #667eea;
-            font-size: 1.3em;
-            font-weight: bold;
-            margin-top: 5px;
+        
+        .status-converted {
+            background: #e8f5e9;
+            color: #00695c;
         }
-
-        .button-group {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-            margin-top: 20px;
+        
+        .status-pending {
+            background: #fff3e0;
+            color: #e65100;
         }
-
-        .status {
-            padding: 10px;
-            border-radius: 8px;
-            margin-top: 15px;
+        
+        .no-data {
             text-align: center;
-            font-weight: 600;
+            padding: 40px;
+            color: #999;
         }
-
-        .status.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
         }
-
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .status.loading {
-            background: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
-        }
-
+        
         .spinner {
             display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid #667eea;
-            border-top: 2px solid transparent;
+            width: 6px;
+            height: 6px;
+            background: #667eea;
             border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-right: 8px;
+            margin: 0 3px;
+            animation: spin 1.4s infinite;
         }
-
+        
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            0%, 100% {
+                opacity: 0.3;
+            }
+            50% {
+                opacity: 1;
+            }
         }
-
-        .full-width {
-            grid-column: 1 / -1;
+        
+        .progress-indicator {
+            background: #f0f0f0;
+            height: 4px;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 10px;
         }
-
+        
+        .progress-bar {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .rescrape-status {
+            font-size: 13px;
+            color: #666;
+            margin-top: 8px;
+        }
+        
         @media (max-width: 768px) {
-            .dashboard {
+            .filters-grid {
                 grid-template-columns: 1fr;
             }
-
-            header h1 {
-                font-size: 1.8em;
+            
+            .filter-buttons {
+                flex-wrap: wrap;
             }
-
-            .controls {
+            
+            .stats-container {
                 grid-template-columns: 1fr;
+            }
+            
+            table {
+                font-size: 12px;
+            }
+            
+            thead th,
+            tbody td {
+                padding: 10px;
             }
         }
     </style>
 </head>
 <body>
+    <!-- Navbar -->
+    <div class="navbar">
+        <h1>🚀 Gharfix Dashboard</h1>
+        <button onclick="logout()">Logout</button>
+    </div>
+    
+    <!-- Container -->
     <div class="container">
-        <header>
-            <h1>Gharfix Lead Analytics</h1>
-            <p>Real-time lead event tracking and analysis - Lead Events Table</p>
-        </header>
-
-        <!-- System Status -->
-        <div class="card full-width" style="margin-bottom: 20px;">
-            <div class="card-title">System Status</div>
-            <div class="metric">
-                <span class="metric-label">Database Status</span>
-                <span class="metric-value" id="db-status">Connecting...</span>
+        <!-- Header -->
+        <div class="header">
+            <h2>Lead Analytics</h2>
+            <button class="rescrape-btn" id="rescrapBtn" onclick="startRescrape()">
+                🔄 Re-scrape Now
+            </button>
+        </div>
+        
+        <!-- Progress Indicator -->
+        <div id="rescrapProgress" style="display: none;">
+            <div class="progress-indicator">
+                <div class="progress-bar" id="progressBar"></div>
             </div>
-            <div class="metric">
-                <span class="metric-label">Last Updated</span>
-                <span class="metric-value" id="last-updated">----</span>
+            <div class="rescrape-status" id="rescrapStatus">Starting rescrape...</div>
+        </div>
+        
+        <!-- Statistics -->
+        <div class="stats-container">
+            <div class="stat-card">
+                <h3>Total Lead Events</h3>
+                <div class="value" id="totalEvents">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Unique Customers</h3>
+                <div class="value" id="uniqueCustomers">0</div>
+            </div>
+            <div class="stat-card" style="border-left-color: #4caf50;">
+                <h3>Last Updated</h3>
+                <div class="value" id="lastUpdated" style="font-size: 14px;">--:--</div>
             </div>
         </div>
-
-        <!-- Controls -->
-        <div class="controls">
-            <div class="control-group">
-                <label class="control-label">Filter by Status</label>
-                <select id="statusFilter">
-                    <option value="">All Status</option>
-                </select>
+        
+        <!-- Filters -->
+        <div class="filters-section">
+            <h3>Filter Leads</h3>
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label>Status</label>
+                    <select id="statusFilter">
+                        <option value="">All Statuses</option>
+                        <option value="interested">Interested</option>
+                        <option value="not_interested">Not Interested</option>
+                        <option value="contacted">Contacted</option>
+                        <option value="converted">Converted</option>
+                        <option value="pending">Pending</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Service</label>
+                    <select id="serviceFilter">
+                        <option value="">All Services</option>
+                    </select>
+                </div>
             </div>
-
-            <div class="control-group">
-                <label class="control-label">Filter by Service</label>
-                <select id="serviceFilter">
-                    <option value="">All Services</option>
-                </select>
-            </div>
-
-            <div class="control-group">
-                <button onclick="applyFilters()" class="btn-secondary">Apply Filters</button>
-            </div>
-
-            <div class="control-group">
-                <button onclick="resetFilters()" class="btn-secondary">Reset Filters</button>
-            </div>
-
-            <div class="control-group">
-                <button onclick="downloadData('csv')" class="btn-success">Download CSV</button>
-            </div>
-
-            <div class="control-group">
-                <button onclick="downloadData('json')" class="btn-success">Download JSON</button>
-            </div>
-
-            <div class="control-group">
-                <button onclick="triggerRescrape()" class="btn-success" id="rescrapeBtn">Re-scrape Now</button>
+            <div class="filter-buttons">
+                <button class="btn-apply" onclick="applyFilters()">Apply Filters</button>
+                <button class="btn-reset" onclick="resetFilters()">Reset</button>
             </div>
         </div>
-
-        <!-- Status Messages -->
-        <div id="statusMessage"></div>
-
-        <!-- Main Dashboard -->
-        <div class="dashboard">
-            <!-- Total Events Card -->
-            <div class="card">
-                <div class="card-title">Total Events</div>
-                <div class="metric">
-                    <span class="metric-label">All Lead Events</span>
-                    <span class="metric-value" id="total-lead-events">0</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Unique Customers</span>
-                    <span class="metric-value" id="unique-customers">0</span>
-                </div>
+        
+        <!-- Leads Table -->
+        <div class="table-section">
+            <div class="table-header">
+                <h3>Detailed Leads</h3>
+                <span id="leadCount" style="color: #999; font-size: 14px;">Loading...</span>
             </div>
-
-            <!-- Status Distribution Card -->
-            <div class="card">
-                <div class="card-title">Status Distribution</div>
-                <div id="statusChart" class="status-chart"></div>
-            </div>
-
-            <!-- Services Card -->
-            <div class="card full-width">
-                <div class="card-title">Top Services</div>
-                <div id="servicesGrid" class="service-grid"></div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Lead ID</th>
+                            <th>Name</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                            <th>Service</th>
+                            <th>Status</th>
+                            <th>Vendor</th>
+                            <th>Rate Card</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leadsTable">
+                        <tr>
+                            <td colspan="8" class="loading">
+                                <span class="spinner"></span>
+                                <span class="spinner"></span>
+                                <span class="spinner"></span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
-
+    
     <script>
-        let allStatuses = [];
-        let allServices = [];
-        let currentData = null;
-
-        // INITIALIZATION
-        document.addEventListener('DOMContentLoaded', function() {
-            loadAnalytics();
-            setInterval(loadAnalytics, 3600000); // Auto-refresh every 1 hr
-        });
-
-        // API CALLS
-        function loadAnalytics() {
-            // Get token from localStorage
+        // ✅ FIX: Authentication check
+        window.addEventListener('load', function() {
             const token = localStorage.getItem('auth_token');
-            if (!token) {
+            if (!token || token === 'null' || token === '') {
                 window.location.href = '/login';
                 return;
             }
-
-            fetch('/api/all-analytics', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            .then(response => response.json())
-            .then(data => {
-                currentData = data;
-                updateUI(data);
-            })
-            .catch(error => {
-                showStatus('Error loading analytics: ' + error, 'error');
-                console.error('Error:', error);
-            });
+            
+            // Load data on page load
+            loadAnalytics();
+            
+            // Refresh every 30 seconds
+            setInterval(loadAnalytics, 30000);
+        });
+        
+        function getAuthHeader() {
+            return {
+                'Authorization': 'Bearer ' + localStorage.getItem('auth_token'),
+                'Content-Type': 'application/json'
+            };
         }
-
-        function applyFilters() {
-            const status = document.getElementById('statusFilter').value;
-            const service = document.getElementById('serviceFilter').value;
-
-            if (!status && !service) {
-                loadAnalytics();
+        
+        async function loadAnalytics() {
+            try {
+                const response = await fetch('/api/all-analytics', {
+                    headers: getAuthHeader()
+                });
+                
+                if (response.status === 401) {
+                    localStorage.removeItem('auth_token');
+                    window.location.href = '/login';
+                    return;
+                }
+                
+                if (!response.ok) throw new Error('Failed to load analytics');
+                
+                const data = await response.json();
+                updateDashboard(data);
+                populateServiceFilter(data.top_services);
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+            }
+        }
+        
+        function updateDashboard(data) {
+            document.getElementById('totalEvents').textContent = data.total_lead_events || 0;
+            document.getElementById('uniqueCustomers').textContent = data.unique_customers || 0;
+            
+            const now = new Date();
+            document.getElementById('lastUpdated').textContent = now.toLocaleTimeString();
+            
+            displayLeads(data.leads || []);
+            document.getElementById('leadCount').textContent = `${(data.leads || []).length} leads`;
+        }
+        
+        function displayLeads(leads) {
+            const tbody = document.getElementById('leadsTable');
+            
+            if (!leads || leads.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="no-data">No leads found</td></tr>';
                 return;
             }
-
-            const params = new URLSearchParams();
-            if (status) params.append('status', status);
-            if (service) params.append('service', service);
-
-            const token = localStorage.getItem('auth_token');
-            fetch(`/api/filtered-analytics?${params}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            .then(response => response.json())
-            .then(data => {
-                currentData = data;
-                updateUI(data);
-                showStatus('Filters applied', 'success');
-            })
-            .catch(error => {
-                showStatus('Error applying filters: ' + error, 'error');
-            });
+            
+            tbody.innerHTML = leads.map(lead => `
+                <tr>
+                    <td><strong>${lead.lead_id}</strong></td>
+                    <td>${lead.name || 'N/A'}</td>
+                    <td>${lead.date}</td>
+                    <td>${lead.time}</td>
+                    <td>${lead.service}</td>
+                    <td>
+                        <span class="status-badge status-${lead.status.toLowerCase().replace(' ', '-')}">
+                            ${lead.status}
+                        </span>
+                    </td>
+                    <td>${lead.vendor}</td>
+                    <td>${lead.rate_card}</td>
+                </tr>
+            `).join('');
         }
-
+        
+        function populateServiceFilter(services) {
+            const select = document.getElementById('serviceFilter');
+            const currentValue = select.value;
+            
+            const options = ['<option value="">All Services</option>'];
+            if (services) {
+                services.forEach(item => {
+                    options.push(`<option value="${item.service}">${item.service}</option>`);
+                });
+            }
+            
+            select.innerHTML = options.join('');
+            select.value = currentValue;
+        }
+        
+        async function applyFilters() {
+            const status = document.getElementById('statusFilter').value;
+            const service = document.getElementById('serviceFilter').value;
+            
+            try {
+                const url = new URL('/api/filtered-analytics', window.location.origin);
+                if (status) url.searchParams.append('status', status);
+                if (service) url.searchParams.append('service', service);
+                
+                const response = await fetch(url, {
+                    headers: getAuthHeader()
+                });
+                
+                if (!response.ok) throw new Error('Failed to apply filters');
+                
+                const data = await response.json();
+                updateDashboard(data);
+            } catch (error) {
+                console.error('Error applying filters:', error);
+                alert('Failed to apply filters. Please try again.');
+            }
+        }
+        
         function resetFilters() {
             document.getElementById('statusFilter').value = '';
             document.getElementById('serviceFilter').value = '';
             loadAnalytics();
-            showStatus('Filters reset', 'success');
         }
-
-        function triggerRescrape() {
-            const btn = document.getElementById('rescrapeBtn');
+        
+        async function startRescrape() {
+            const btn = document.getElementById('rescrapBtn');
             btn.disabled = true;
-            showStatus('<span class="spinner"></span>Scraping...', 'loading');
-
-            const token = localStorage.getItem('auth_token');
-            fetch('/api/rescrape', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showStatus('Rescrape completed! Refreshing...', 'success');
-                    setTimeout(loadAnalytics, 2000);
-                    btn.disabled = false;
-                } else {
-                    showStatus('Error: ' + (data.error || data.message), 'error');
-                    btn.disabled = false;
-                }
-            })
-            .catch(error => {
-                showStatus('Error: ' + error, 'error');
-                btn.disabled = false;
-            });
-        }
-
-        function downloadData(format) {
-            if (!currentData) {
-                showStatus('No data to download. Please load analytics first.', 'error');
-                return;
-            }
-
-            let content, filename, type;
-
-            if (format === 'csv') {
-                content = generateCSV();
-                filename = `gharfix-leads-${new Date().toISOString().slice(0, 10)}.csv`;
-                type = 'text/csv;charset=utf-8';
-            } else if (format === 'json') {
-                content = JSON.stringify(currentData, null, 2);
-                filename = `gharfix-leads-${new Date().toISOString().slice(0, 10)}.json`;
-                type = 'application/json;charset=utf-8';
-            }
-
-            const blob = new Blob([content], { type: type });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', filename);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            showStatus(`Downloaded ${filename}`, 'success');
-        }
-
-        function generateCSV() {
-            let csv = 'Status,Count\n';
-
-            if (currentData.status_distribution) {
-                currentData.status_distribution.forEach(item => {
-                    csv += `${item.status},${item.count}\n`;
-                });
-            }
-
-            csv += '\nService,Count\n';
-            if (currentData.top_services) {
-                currentData.top_services.forEach(item => {
-                    csv += `${item.service},${item.count}\n`;
-                });
-            }
-
-            return csv;
-        }
-
-        // UI UPDATES
-        function updateUI(data) {
-            // ✅ FIXED: Use total_lead_events (not total_events)
-            document.getElementById('total-lead-events').textContent =
-                (data.total_lead_events || 0).toLocaleString();
             
-            // Use unique_customers
-            document.getElementById('unique-customers').textContent =
-                (data.unique_customers || 0).toLocaleString();
-
-            // Update timestamp
-            document.getElementById('last-updated').textContent =
-                new Date().toLocaleTimeString();
-
-            // Update system status
-            document.getElementById('db-status').textContent = 'Connected';
-
-            // Update status filter dropdown
-            updateStatusDropdown(data.status_distribution);
-
-            // Update service filter dropdown
-            updateServiceDropdown(data.top_services);
-
-            // Update status chart
-            updateStatusChart(data.status_distribution);
-
-            // Update services grid
-            updateServicesGrid(data.top_services);
-        }
-
-        function updateStatusDropdown(statuses) {
-            const select = document.getElementById('statusFilter');
-            const currentValue = select.value;
-
-            // Get unique statuses from database
-            const uniqueStatuses = [...new Set(statuses.map(s => s.status))];
-
-            // Rebuild dropdown with all statuses from database
-            select.innerHTML = '<option value="">All Status</option>';
-            uniqueStatuses.forEach(status => {
-                const option = document.createElement('option');
-                option.value = status;
-                option.textContent = status;
-                select.appendChild(option);
-            });
-
-            // Restore previous selection if it still exists
-            if (uniqueStatuses.includes(currentValue)) {
-                select.value = currentValue;
+            try {
+                const response = await fetch('/api/rescrape', {
+                    method: 'POST',
+                    headers: getAuthHeader()
+                });
+                
+                if (!response.ok) throw new Error('Failed to start rescrape');
+                
+                const data = await response.json();
+                const taskId = data.task_id;
+                
+                // Show progress
+                document.getElementById('rescrapProgress').style.display = 'block';
+                
+                // Poll for status
+                pollRescrapeStatus(taskId, btn);
+            } catch (error) {
+                console.error('Error starting rescrape:', error);
+                alert('Failed to start rescrape. Please try again.');
+                btn.disabled = false;
             }
         }
-
-        function updateServiceDropdown(services) {
-            const select = document.getElementById('serviceFilter');
-            const currentValue = select.value;
-
-            // Get unique services from database
-            const uniqueServices = [...new Set(services.map(s => s.service))];
-
-            // Rebuild dropdown with ALL services
-            select.innerHTML = '<option value="">All Services</option>';
-            uniqueServices.forEach(service => {
-                const option = document.createElement('option');
-                option.value = service;
-                option.textContent = service;
-                select.appendChild(option);
-            });
-
-            // Restore previous selection if it still exists
-            if (uniqueServices.includes(currentValue)) {
-                select.value = currentValue;
-            }
+        
+        function pollRescrapeStatus(taskId, btn) {
+            const pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/rescrape-status/${taskId}`, {
+                        headers: getAuthHeader()
+                    });
+                    
+                    if (!response.ok) return;
+                    
+                    const data = await response.json();
+                    const progress = data.progress || {};
+                    
+                    // Update progress bar
+                    const percentage = progress.percentage || 0;
+                    document.getElementById('progressBar').style.width = percentage + '%';
+                    document.getElementById('rescrapStatus').textContent = progress.status || 'Processing...';
+                    
+                    // Check if complete
+                    if (data.status === 'SUCCESS' || data.status === 'success') {
+                        clearInterval(pollInterval);
+                        setTimeout(() => {
+                            document.getElementById('rescrapProgress').style.display = 'none';
+                            btn.disabled = false;
+                            loadAnalytics();
+                            alert('✅ Rescrape completed successfully!');
+                        }, 1000);
+                    } else if (data.status === 'FAILURE' || data.status === 'failed') {
+                        clearInterval(pollInterval);
+                        document.getElementById('rescrapProgress').style.display = 'none';
+                        btn.disabled = false;
+                        alert('❌ Rescrape failed. Please check the logs.');
+                    }
+                } catch (error) {
+                    console.error('Error polling status:', error);
+                }
+            }, 1000); // Poll every second
         }
-
-        function updateStatusChart(statuses) {
-            const container = document.getElementById('statusChart');
-            const total = statuses.reduce((sum, s) => sum + s.count, 0) || 1;
-
-            container.innerHTML = statuses
-                .sort((a, b) => b.count - a.count)
-                .map(s => {
-                    const percentage = ((s.count / total) * 100).toFixed(1);
-                    return `
-                        <div class="status-bar">
-                            <span class="status-label">${s.status}</span>
-                            <div class="status-bar-bg">
-                                <div class="status-bar-fill" style="width: ${percentage}%">
-                                    ${s.count}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                })
-                .join('');
-        }
-
-        function updateServicesGrid(services) {
-            const container = document.getElementById('servicesGrid');
-            container.innerHTML = services
-                .slice(0, 20)
-                .map(s => `
-                    <div class="service-item">
-                        <div class="service-name">${s.service}</div>
-                        <div class="service-count">${s.count}</div>
-                    </div>
-                `)
-                .join('');
-        }
-
-        function showStatus(message, type) {
-            const div = document.getElementById('statusMessage');
-            div.innerHTML = `<div class="status ${type}">${message}</div>`;
-
-            if (type === 'success' || type === 'loading') {
-                setTimeout(() => { div.innerHTML = ''; }, 5000);
+        
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                localStorage.removeItem('auth_token');
+                window.location.href = '/login';
             }
         }
     </script>
