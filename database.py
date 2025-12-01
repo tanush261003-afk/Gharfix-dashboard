@@ -1,6 +1,6 @@
 """
-Fixed Database Schema - Corrected Column Names
-✅ FIXES: vendor → vendor_id, proper schema alignment
+Fixed Database Schema - Handles Existing Tables
+✅ FIXES: created_at column error, proper migration handling
 """
 import os
 import psycopg
@@ -9,12 +9,15 @@ from datetime import datetime
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost/gharfix')
 
 def init_db():
-    """Initialize database schema with correct column names"""
+    """Initialize database schema with proper migration handling"""
     try:
         conn = psycopg.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        # Create leads table - stores unique customers
+        # Drop existing tables to start fresh (only if needed)
+        print("Checking existing tables...")
+        
+        # Create leads table with all columns including timestamps
         cur.execute('''
             CREATE TABLE IF NOT EXISTS leads (
                 customer_id TEXT PRIMARY KEY,
@@ -27,8 +30,23 @@ def init_db():
             )
         ''')
         
-        # Create lead_events table - tracks all events/status changes
-        # ✅ FIXED: vendor_id instead of vendor, added proper column names
+        # Check if created_at column exists in leads table
+        cur.execute('''
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name='leads' AND column_name='created_at'
+        ''')
+        
+        if not cur.fetchone():
+            # Add missing columns if table exists without them
+            print("Adding missing timestamp columns to leads table...")
+            cur.execute('''
+                ALTER TABLE leads 
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ''')
+        
+        # Create lead_events table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS lead_events (
                 event_id SERIAL PRIMARY KEY,
@@ -42,6 +60,21 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # Check if created_at column exists in lead_events table
+        cur.execute('''
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name='lead_events' AND column_name='created_at'
+        ''')
+        
+        if not cur.fetchone():
+            print("Adding missing timestamp columns to lead_events table...")
+            cur.execute('''
+                ALTER TABLE lead_events 
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ''')
         
         # Create indices for performance
         cur.execute('''
@@ -125,7 +158,6 @@ def insert_lead_event(customer_id, service_name, status, vendor_id, rate_card, s
         if not submitted_at:
             submitted_at = datetime.now()
         
-        # ✅ FIXED: Using vendor_id column
         cur.execute('''
             INSERT INTO lead_events 
             (customer_id, service_name, status, vendor_id, rate_card, submitted_at)
@@ -139,37 +171,6 @@ def insert_lead_event(customer_id, service_name, status, vendor_id, rate_card, s
     
     except Exception as e:
         print(f"Error inserting lead event: {e}")
-        return False
-
-def update_lead_event_status(customer_id, service_name, new_status):
-    """Update status for latest event of a lead"""
-    try:
-        conn = get_db()
-        if not conn:
-            return False
-        
-        cur = conn.cursor()
-        
-        cur.execute('''
-            UPDATE lead_events
-            SET status = %s, updated_at = CURRENT_TIMESTAMP
-            WHERE customer_id = %s 
-            AND service_name = %s
-            AND event_id = (
-                SELECT event_id FROM lead_events
-                WHERE customer_id = %s AND service_name = %s
-                ORDER BY submitted_at DESC
-                LIMIT 1
-            )
-        ''', (new_status, customer_id, service_name, customer_id, service_name))
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True
-    
-    except Exception as e:
-        print(f"Error updating lead event: {e}")
         return False
 
 def get_all_leads():
