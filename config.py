@@ -1,83 +1,54 @@
-
 """
-Configuration - Works for BOTH local and Render
-Production-safe config with fail-fast validation
+Flask Configuration
 """
 import os
-from urllib.parse import urlparse
+from datetime import timedelta
 
-# ============================================================================
-# DATABASE - Auto-detect from DATABASE_URL (Neon or local)
-# ============================================================================
+class Config:
+    """Base configuration"""
+    SECRET_KEY = os.getenv('SECRET_KEY', 'gharfix-secret-key-change-in-production')
+    DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost/gharfix')
+    
+    # Session
+    PERMANENT_SESSION_LIFETIME = timedelta(days=30)
+    SESSION_COOKIE_SECURE = os.getenv('FLASK_ENV') == 'production'
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    
+    # Admin credentials
+    ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
+    ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
+    
+    # Bellevie API
+    BELLEVIE_API_URL = os.getenv('BELLEVIE_API_URL', 'https://api.bellevie.app')
+    BELLEVIE_API_KEY = os.getenv('BELLEVIE_API_KEY', '')
+    
+    # Celery
+    CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    CELERY_RESULT_BACKEND = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    
+    # CORS
+    CORS_ORIGINS = ['*']
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://localhost:5432/bellevie_leads')
-url = urlparse(DATABASE_URL)
+class DevelopmentConfig(Config):
+    """Development configuration"""
+    DEBUG = True
+    TESTING = False
 
-DATABASE = {
-    'host': url.hostname,
-    'port': url.port or 5432,
-    'database': (url.path[1:] if url.path and len(url.path) > 1 else None),
-    'user': url.username,
-    'password': url.password
+class ProductionConfig(Config):
+    """Production configuration"""
+    DEBUG = False
+    TESTING = False
+
+class TestingConfig(Config):
+    """Testing configuration"""
+    DEBUG = True
+    TESTING = True
+    DATABASE_URL = 'postgresql://user:password@localhost/gharfix_test'
+
+config = {
+    'development': DevelopmentConfig,
+    'production': ProductionConfig,
+    'testing': TestingConfig,
+    'default': DevelopmentConfig
 }
-
-# Fail fast if DATABASE is not configured correctly (prevents Render 500 loops)
-if not DATABASE['host'] or not DATABASE['database']:
-    raise ValueError("DATABASE_URL is missing or invalid. Set a full Postgres URL in env (e.g., Neon)")
-
-# ============================================================================
-# BELLEVIE AUTHENTICATION (only needed locally)
-# ============================================================================
-
-BELLEVIE_AUTH_COOKIE = os.getenv("BELLEVIE_AUTH_COOKIE", "")
-
-# ============================================================================
-# REDIS (optional - only if using caching)
-# ============================================================================
-
-REDIS_URL = os.getenv('REDIS_URL', '').strip()
-
-if REDIS_URL:
-    try:
-        ru = urlparse(REDIS_URL)
-        # Validate that we can extract the port safely
-        # This prevents: ValueError: Port could not be cast to integer value as 'port'
-        if ru.port is None:
-            raise ValueError(f"REDIS_URL must include a numeric port, got: {REDIS_URL}")
-        REDIS = {
-            'host': ru.hostname or 'localhost',
-            'port': ru.port,
-            'password': ru.password
-        }
-    except ValueError as e:
-        print(f"❌ REDIS_URL parse error: {e}")
-        print("⚠️  Disabling Redis. Set a valid REDIS_URL or remove it from env.")
-        REDIS = None
-else:
-    REDIS = None
-
-# ============================================================================
-# API SETTINGS
-# ============================================================================
-
-API_HOST = os.getenv('API_HOST', '0.0.0.0')
-API_PORT = int(os.getenv('PORT', 10000))
-
-# ============================================================================
-# FEATURE FLAGS
-# ============================================================================
-
-# Default to read-only on cloud for safety
-READ_ONLY_MODE = os.getenv('READ_ONLY_MODE', 'true').lower() == 'true'
-ENABLE_RESCRAPE = os.getenv('ENABLE_RESCRAPE', 'false').lower() == 'true'
-
-# ============================================================================
-# STARTUP DIAGNOSTICS
-# ============================================================================
-
-print("✅ Config loaded")
-print(f"   - Database host: {DATABASE['host']}")
-print(f"   - Database: {DATABASE['database']}")
-print(f"   - Read-only: {READ_ONLY_MODE}")
-print(f"   - Rescrape enabled: {ENABLE_RESCRAPE}")
-print(f"   - Redis: {'Enabled' if REDIS else 'Disabled'}")
