@@ -6,6 +6,4 @@ python-dotenv
 gunicorn
 redis
 PyJWT
-
-
-
+celery
