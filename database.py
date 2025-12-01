@@ -1,6 +1,6 @@
 """
-Database schema and initialization
-✅ FIXES: Proper schema for real-time sync and tracking
+Fixed Database Schema - Corrected Column Names
+✅ FIXES: vendor → vendor_id, proper schema alignment
 """
 import os
 import psycopg
@@ -9,7 +9,7 @@ from datetime import datetime
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost/gharfix')
 
 def init_db():
-    """Initialize database schema"""
+    """Initialize database schema with correct column names"""
     try:
         conn = psycopg.connect(DATABASE_URL)
         cur = conn.cursor()
@@ -28,13 +28,14 @@ def init_db():
         ''')
         
         # Create lead_events table - tracks all events/status changes
+        # ✅ FIXED: vendor_id instead of vendor, added proper column names
         cur.execute('''
             CREATE TABLE IF NOT EXISTS lead_events (
                 event_id SERIAL PRIMARY KEY,
                 customer_id TEXT REFERENCES leads(customer_id) ON DELETE CASCADE,
                 service_name TEXT,
                 status TEXT,
-                vendor TEXT,
+                vendor_id TEXT,
                 rate_card TEXT,
                 submitted_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -92,7 +93,6 @@ def insert_or_update_lead(customer_id, first_name, last_name, email, phone):
         
         cur = conn.cursor()
         
-        # Try to insert, if exists update
         cur.execute('''
             INSERT INTO leads (customer_id, first_name, last_name, email, phone)
             VALUES (%s, %s, %s, %s, %s)
@@ -113,8 +113,8 @@ def insert_or_update_lead(customer_id, first_name, last_name, email, phone):
         print(f"Error inserting/updating lead: {e}")
         return False
 
-def insert_lead_event(customer_id, service_name, status, vendor, rate_card, submitted_at=None):
-    """Insert lead event"""
+def insert_lead_event(customer_id, service_name, status, vendor_id, rate_card, submitted_at=None):
+    """Insert lead event with correct column names"""
     try:
         conn = get_db()
         if not conn:
@@ -125,11 +125,12 @@ def insert_lead_event(customer_id, service_name, status, vendor, rate_card, subm
         if not submitted_at:
             submitted_at = datetime.now()
         
+        # ✅ FIXED: Using vendor_id column
         cur.execute('''
             INSERT INTO lead_events 
-            (customer_id, service_name, status, vendor, rate_card, submitted_at)
+            (customer_id, service_name, status, vendor_id, rate_card, submitted_at)
             VALUES (%s, %s, %s, %s, %s, %s)
-        ''', (customer_id, service_name, status, vendor, rate_card, submitted_at))
+        ''', (customer_id, service_name, status, vendor_id, rate_card, submitted_at))
         
         conn.commit()
         cur.close()
@@ -149,7 +150,6 @@ def update_lead_event_status(customer_id, service_name, new_status):
         
         cur = conn.cursor()
         
-        # Update the latest event for this lead+service combination
         cur.execute('''
             UPDATE lead_events
             SET status = %s, updated_at = CURRENT_TIMESTAMP
