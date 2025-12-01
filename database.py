@@ -1,48 +1,50 @@
-import psycopg
+"""
+Database schema and initialization
+✅ FIXES: Proper schema for real-time sync and tracking
+"""
 import os
-from dotenv import load_dotenv
+import psycopg
 from datetime import datetime
 
-load_dotenv()
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost/gharfix')
 
-def init_database():
-    """Initialize database - ONLY 2 TABLES (lead_events + leads)"""
+def init_db():
+    """Initialize database schema"""
     try:
-        conn = psycopg.connect(os.getenv('DATABASE_URL'))
+        conn = psycopg.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        print("🚀 Initializing database...")
-        
-        # ============ TABLE 1: lead_events ============
-        print("📝 Creating lead_events table...")
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS lead_events (
-                id SERIAL PRIMARY KEY,
-                event_id VARCHAR(100) UNIQUE,
-                customer_id INTEGER,
-                first_name VARCHAR(100),
-                last_name VARCHAR(100),
-                status VARCHAR(50),
-                submitted_at BIGINT,
-                service_name VARCHAR(100)
-            )
-        ''')
-        
-        # ============ TABLE 2: leads ============
-        print("👥 Creating leads table...")
+        # Create leads table - stores unique customers
         cur.execute('''
             CREATE TABLE IF NOT EXISTS leads (
-                id SERIAL PRIMARY KEY,
-                customer_id INTEGER UNIQUE,
-                first_name VARCHAR(100),
-                last_name VARCHAR(100)
+                customer_id TEXT PRIMARY KEY,
+                first_name TEXT,
+                last_name TEXT,
+                email TEXT,
+                phone TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
-        # ============ Create Indexes ============
-        print("🔍 Creating indexes...")
+        # Create lead_events table - tracks all events/status changes
         cur.execute('''
-            CREATE INDEX IF NOT EXISTS idx_lead_events_customer_id 
+            CREATE TABLE IF NOT EXISTS lead_events (
+                event_id SERIAL PRIMARY KEY,
+                customer_id TEXT REFERENCES leads(customer_id) ON DELETE CASCADE,
+                service_name TEXT,
+                status TEXT,
+                vendor TEXT,
+                rate_card TEXT,
+                submitted_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Create indices for performance
+        cur.execute('''
+            CREATE INDEX IF NOT EXISTS idx_lead_events_customer 
             ON lead_events(customer_id)
         ''')
         
@@ -52,54 +54,180 @@ def init_database():
         ''')
         
         cur.execute('''
-            CREATE INDEX IF NOT EXISTS idx_lead_events_submitted_at 
-            ON lead_events(submitted_at)
+            CREATE INDEX IF NOT EXISTS idx_lead_events_service 
+            ON lead_events(service_name)
+        ''')
+        
+        cur.execute('''
+            CREATE INDEX IF NOT EXISTS idx_leads_created 
+            ON leads(created_at)
         ''')
         
         conn.commit()
-        print("✅ Database tables created successfully!")
-        
-        # ============ Get Statistics ============
-        print("\n📊 Database Statistics:")
-        
-        cur.execute('SELECT COUNT(*) FROM lead_events')
-        total_events = cur.fetchone()[0]
-        print(f"✅ Total Lead Events: {total_events}")
-        
-        cur.execute('SELECT COUNT(DISTINCT customer_id) FROM lead_events')
-        unique_customers = cur.fetchone()[0]
-        print(f"✅ Unique Customers: {unique_customers}")
-        
-        # Get latest status per customer
-        cur.execute('''
-            SELECT DISTINCT ON (customer_id) status
-            FROM lead_events
-            ORDER BY customer_id, submitted_at DESC
-        ''')
-        
-        latest_statuses = cur.fetchall()
-        status_counts = {}
-        for row in latest_statuses:
-            status = row[0]
-            status_counts[status] = status_counts.get(status, 0) + 1
-        
-        if status_counts:
-            print(f"\n📊 Status Breakdown (Latest Per Customer):")
-            for status, count in sorted(status_counts.items(), key=lambda x: x[1], reverse=True):
-                print(f"  {status}: {count}")
-        
         cur.close()
         conn.close()
         
-        print(f"\n✅ Database ready!")
-        print(f"💾 Total Events: {total_events}")
-        print(f"👥 Unique Customers: {unique_customers}")
-        
+        print("✅ Database initialized successfully")
         return True
     
     except Exception as e:
-        print(f"❌ Error initializing database: {str(e)}")
+        print(f"❌ Database initialization error: {e}")
         return False
 
+def get_db():
+    """Get database connection"""
+    try:
+        conn = psycopg.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        return None
+
+def insert_or_update_lead(customer_id, first_name, last_name, email, phone):
+    """Insert or update lead in database"""
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        
+        cur = conn.cursor()
+        
+        # Try to insert, if exists update
+        cur.execute('''
+            INSERT INTO leads (customer_id, first_name, last_name, email, phone)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (customer_id) DO UPDATE SET
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                email = EXCLUDED.email,
+                phone = EXCLUDED.phone,
+                updated_at = CURRENT_TIMESTAMP
+        ''', (customer_id, first_name, last_name, email, phone))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    
+    except Exception as e:
+        print(f"Error inserting/updating lead: {e}")
+        return False
+
+def insert_lead_event(customer_id, service_name, status, vendor, rate_card, submitted_at=None):
+    """Insert lead event"""
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        
+        cur = conn.cursor()
+        
+        if not submitted_at:
+            submitted_at = datetime.now()
+        
+        cur.execute('''
+            INSERT INTO lead_events 
+            (customer_id, service_name, status, vendor, rate_card, submitted_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        ''', (customer_id, service_name, status, vendor, rate_card, submitted_at))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    
+    except Exception as e:
+        print(f"Error inserting lead event: {e}")
+        return False
+
+def update_lead_event_status(customer_id, service_name, new_status):
+    """Update status for latest event of a lead"""
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        
+        cur = conn.cursor()
+        
+        # Update the latest event for this lead+service combination
+        cur.execute('''
+            UPDATE lead_events
+            SET status = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE customer_id = %s 
+            AND service_name = %s
+            AND event_id = (
+                SELECT event_id FROM lead_events
+                WHERE customer_id = %s AND service_name = %s
+                ORDER BY submitted_at DESC
+                LIMIT 1
+            )
+        ''', (new_status, customer_id, service_name, customer_id, service_name))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    
+    except Exception as e:
+        print(f"Error updating lead event: {e}")
+        return False
+
+def get_all_leads():
+    """Get all leads"""
+    try:
+        conn = get_db()
+        if not conn:
+            return []
+        
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM leads ORDER BY created_at DESC')
+        leads = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        return leads
+    
+    except Exception as e:
+        print(f"Error fetching leads: {e}")
+        return []
+
+def get_lead_count():
+    """Get total lead count"""
+    try:
+        conn = get_db()
+        if not conn:
+            return 0
+        
+        cur = conn.cursor()
+        cur.execute('SELECT COUNT(*) FROM leads')
+        count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        
+        return count
+    
+    except Exception as e:
+        print(f"Error counting leads: {e}")
+        return 0
+
+def get_event_count():
+    """Get total event count"""
+    try:
+        conn = get_db()
+        if not conn:
+            return 0
+        
+        cur = conn.cursor()
+        cur.execute('SELECT COUNT(*) FROM lead_events')
+        count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        
+        return count
+    
+    except Exception as e:
+        print(f"Error counting events: {e}")
+        return 0
+
 if __name__ == '__main__':
-    init_database()
+    init_db()
