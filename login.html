@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gharfix - Login</title>
+    <title>Gharfix Dashboard - Login</title>
     <style>
         * {
             margin: 0;
@@ -12,29 +12,32 @@
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
         }
         
         .login-container {
+            width: 100%;
+            max-width: 450px;
+            padding: 20px;
+        }
+        
+        .login-card {
             background: white;
             border-radius: 12px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            width: 100%;
-            max-width: 400px;
             padding: 40px;
-            animation: slideUp 0.5s ease-out;
+            animation: slideIn 0.5s ease-out;
         }
         
-        @keyframes slideUp {
+        @keyframes slideIn {
             from {
                 opacity: 0;
-                transform: translateY(30px);
+                transform: translateY(20px);
             }
             to {
                 opacity: 1;
@@ -44,7 +47,7 @@
         
         .login-header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
         
         .login-header h1 {
@@ -59,7 +62,7 @@
         }
         
         .form-group {
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }
         
         label {
@@ -73,11 +76,11 @@
         input[type="text"],
         input[type="password"] {
             width: 100%;
-            padding: 12px 16px;
+            padding: 12px 15px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             font-size: 14px;
-            transition: border-color 0.3s ease;
+            transition: border-color 0.3s;
             font-family: inherit;
         }
         
@@ -95,11 +98,11 @@
             color: white;
             border: none;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            margin-top: 24px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
         }
         
         .login-button:hover {
@@ -112,148 +115,164 @@
         }
         
         .login-button:disabled {
-            opacity: 0.6;
+            opacity: 0.7;
             cursor: not-allowed;
-            transform: none;
         }
         
         .error-message {
-            background-color: #fee;
-            border: 1px solid #fcc;
+            background: #fee;
             color: #c33;
-            padding: 12px 16px;
+            padding: 12px;
             border-radius: 8px;
-            margin-bottom: 24px;
-            font-size: 14px;
+            margin-bottom: 20px;
             display: none;
-            animation: slideDown 0.3s ease-out;
+            font-size: 14px;
+            border-left: 4px solid #c33;
         }
         
         .error-message.show {
             display: block;
         }
         
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .success-message {
-            background-color: #efe;
-            border: 1px solid #cfc;
-            color: #3c3;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 24px;
-            font-size: 14px;
+        .loading {
             display: none;
-            animation: slideDown 0.3s ease-out;
+            text-align: center;
+            color: #667eea;
+            font-size: 14px;
         }
         
-        .success-message.show {
+        .loading.show {
             display: block;
         }
         
-        .loading-spinner {
-            display: none;
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-top: 2px solid white;
+        .spinner {
+            display: inline-block;
+            width: 4px;
+            height: 4px;
+            background: #667eea;
             border-radius: 50%;
-            animation: spin 0.6s linear infinite;
-            margin-right: 8px;
-            vertical-align: middle;
+            margin: 0 3px;
+            animation: spin 1.4s infinite;
+        }
+        
+        .spinner:nth-child(1) {
+            animation-delay: 0s;
+        }
+        
+        .spinner:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        
+        .spinner:nth-child(3) {
+            animation-delay: 0.4s;
         }
         
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            0%, 100% {
+                opacity: 0.3;
+            }
+            50% {
+                opacity: 1;
+            }
         }
         
-        .button-content {
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #999;
+            font-size: 13px;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <div class="login-header">
-            <h1>🔐 Gharfix Analytics</h1>
-            <p>Secure Dashboard Access</p>
-        </div>
-        
-        <div class="error-message" id="errorMessage"></div>
-        <div class="success-message" id="successMessage"></div>
-        
-        <form id="loginForm" onsubmit="handleLogin(event)">
-            <div class="form-group">
-                <label for="username">Username</label>
-                <input 
-                    type="text" 
-                    id="username" 
-                    placeholder="Enter username"
-                    autocomplete="off"
-                    required
-                >
+        <div class="login-card">
+            <div class="login-header">
+                <h1>🚀 Gharfix</h1>
+                <p>Lead Management Dashboard</p>
             </div>
             
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    placeholder="Enter password"
-                    autocomplete="off"
-                    required
-                >
-            </div>
-            
-            <button type="submit" class="login-button" id="loginBtn">
-                <div class="button-content">
-                    <span class="loading-spinner" id="spinner"></span>
-                    <span>Login</span>
+            <form id="loginForm">
+                <div class="error-message" id="errorMessage"></div>
+                
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        placeholder="Enter your username"
+                        required
+                        autocomplete="username"
+                    >
                 </div>
-            </button>
-        </form>
+                
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        placeholder="Enter your password"
+                        required
+                        autocomplete="current-password"
+                    >
+                </div>
+                
+                <button type="submit" class="login-button" id="loginButton">
+                    Login to Dashboard
+                </button>
+                
+                <div class="loading" id="loadingIndicator">
+                    <span class="spinner"></span>
+                    <span class="spinner"></span>
+                    <span class="spinner"></span>
+                </div>
+            </form>
+            
+            <div class="footer">
+                <p>Default: admin / admin123</p>
+            </div>
+        </div>
     </div>
-
+    
     <script>
-        // Check if already logged in
-        window.addEventListener('load', () => {
-            const token = sessionStorage.getItem('authToken');
-            if (token) {
+        // ✅ FIX: Prevent redirect loop - check if already logged in
+        window.addEventListener('load', function() {
+            const token = localStorage.getItem('auth_token');
+            if (token && token !== 'null' && token !== '') {
+                // User is already logged in - redirect to dashboard
                 window.location.href = '/dashboard';
             }
         });
-
-        async function handleLogin(event) {
-            event.preventDefault();
+        
+        // Handle form submission
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
             
-            const username = document.getElementById('username').value;
+            const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
             const errorMsg = document.getElementById('errorMessage');
-            const successMsg = document.getElementById('successMessage');
-            const loginBtn = document.getElementById('loginBtn');
-            const spinner = document.getElementById('spinner');
+            const loginBtn = document.getElementById('loginButton');
+            const loading = document.getElementById('loadingIndicator');
             
-            // Clear messages
+            // Reset error
+            errorMsg.textContent = '';
             errorMsg.classList.remove('show');
-            successMsg.classList.remove('show');
+            
+            // Validate input
+            if (!username || !password) {
+                errorMsg.textContent = 'Please enter both username and password';
+                errorMsg.classList.add('show');
+                return;
+            }
             
             // Show loading
             loginBtn.disabled = true;
-            spinner.style.display = 'inline-block';
+            loading.classList.add('show');
             
             try {
-                const response = await fetch('/api/login', {
+                const response = await fetch('/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -264,35 +283,27 @@
                     })
                 });
                 
-                const data = await response.json();
-                
-                if (response.ok && data.token) {
+                if (response.ok) {
+                    const data = await response.json();
+                    
                     // Store token
-                    sessionStorage.setItem('authToken', data.token);
+                    localStorage.setItem('auth_token', data.token);
                     
-                    // Show success
-                    successMsg.textContent = '✓ Login successful! Redirecting...';
-                    successMsg.classList.add('show');
-                    
-                    // Redirect after 1 second
-                    setTimeout(() => {
-                        window.location.href = '/dashboard';
-                    }, 1000);
+                    // Redirect to dashboard
+                    window.location.href = '/dashboard';
                 } else {
-                    throw new Error(data.message || 'Login failed');
+                    const data = await response.json();
+                    errorMsg.textContent = data.error || 'Login failed. Please try again.';
+                    errorMsg.classList.add('show');
+                    loginBtn.disabled = false;
+                    loading.classList.remove('show');
                 }
             } catch (error) {
-                errorMsg.textContent = '✗ ' + (error.message || 'Invalid credentials. Please check username and password (case-sensitive).');
+                console.error('Login error:', error);
+                errorMsg.textContent = 'Network error. Please try again.';
                 errorMsg.classList.add('show');
                 loginBtn.disabled = false;
-                spinner.style.display = 'none';
-            }
-        }
-        
-        // Allow Enter key to submit
-        document.getElementById('loginForm').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                handleLogin(e);
+                loading.classList.remove('show');
             }
         });
     </script>
