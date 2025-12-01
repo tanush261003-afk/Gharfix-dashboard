@@ -1,77 +1,105 @@
 """
-Celery Tasks Module
-===================
-Defines async tasks for scraping and analytics updates
+Celery Tasks for Background Jobs
+✅ FIXES: Progress tracking, rescrape status
 """
-
-from celery import shared_task
-from database import db
-from scraper import scraper
+from celery import shared_task, Task
+from celery_app import celery_app
 import time
+from scraper import full_rescrape, fetch_leads_from_bellevie, sync_leads_to_database
 
-@shared_task
-def scrape_all_leads_task():
-    """
-    Celery task: Scrape all leads from Bellevie and store in database
-    """
+class CallbackTask(Task):
+    def on_retry(self, exc, task_id, args, kwargs, einfo):
+        print(f'Task {task_id} is being retried')
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        print(f'Task {task_id} failed: {exc}')
+
+    def on_success(self, result, task_id, args, kwargs):
+        print(f'Task {task_id} succeeded')
+
+@shared_task(bind=True, base=CallbackTask, max_retries=3)
+def rescrape_task(self):
+    """Full rescrape task with progress tracking"""
     try:
-        # Fetch all leads
-        leads = scraper.fetch_all_leads()
+        total_steps = 2
         
+        # Step 1: Fetch leads
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 1,
+                'total': total_steps,
+                'status': 'Fetching leads from Bellevie...',
+                'percentage': 50
+            }
+        )
+        
+        leads = fetch_leads_from_bellevie()
         if not leads:
-            return {'status': 'error', 'message': 'No leads fetched'}
+            return {
+                'status': 'error',
+                'message': 'No leads fetched from Bellevie',
+                'new': 0,
+                'updated': 0
+            }
         
-        # Insert into database
-        result = db.insert_leads(leads)
+        # Step 2: Sync to database
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 2,
+                'total': total_steps,
+                'status': f'Syncing {len(leads)} leads to database...',
+                'percentage': 75
+            }
+        )
         
-        # Export to files
-        scraper.export_to_csv(leads, 'all_leads.csv')
-        scraper.export_to_json(leads, 'all_leads.json')
+        new_count, updated_count = sync_leads_to_database(leads)
+        
+        # Complete
+        self.update_state(
+            state='SUCCESS',
+            meta={
+                'current': total_steps,
+                'total': total_steps,
+                'status': 'Rescrape completed',
+                'percentage': 100
+            }
+        )
         
         return {
             'status': 'success',
-            'message': f"Scraped {len(leads)} leads",
-            'inserted': result['inserted'],
-            'duplicates': result['duplicates']
+            'message': 'Rescrape completed successfully',
+            'new': new_count,
+            'updated': updated_count,
+            'total': len(leads)
         }
+    
     except Exception as e:
-        return {'status': 'error', 'message': str(e)}
+        print(f"Rescrape task error: {e}")
+        self.retry(exc=e, countdown=5)
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
 
-@shared_task
-def scrape_new_leads_task():
-    """
-    Celery task: Scrape new leads from last 0.2 hours
-    """
+@shared_task(bind=True, base=CallbackTask)
+def sync_task(self, leads_data):
+    """Sync specific leads to database"""
     try:
-        leads = scraper.fetch_new_leads(hours=0.2)
-        
-        if not leads:
-            return {'status': 'success', 'message': 'No new leads', 'count': 0}
-        
-        # Insert into database
-        result = db.insert_leads(leads)
-        
-        # Re-export all leads
-        all_leads = db.get_all_leads()
-        scraper.export_to_csv(all_leads, 'all_leads.csv')
-        scraper.export_to_json(all_leads, 'all_leads.json')
-        
+        new_count, updated_count = sync_leads_to_database(leads_data)
         return {
             'status': 'success',
-            'message': f"Added {len(leads)} new leads",
-            'inserted': result['inserted'],
-            'duplicates': result['duplicates']
+            'new': new_count,
+            'updated': updated_count
         }
     except Exception as e:
-        return {'status': 'error', 'message': str(e)}
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
 
 @shared_task
-def update_analytics_task():
-    """
-    Celery task: Update analytics cache
-    """
-    try:
-        analytics = db.get_analytics()
-        return {'status': 'success', 'data': analytics}
-    except Exception as e:
-        return {'status': 'error', 'message': str(e)}
+def health_check():
+    """Health check task"""
+    return {'status': 'healthy', 'timestamp': str(time.time())}
