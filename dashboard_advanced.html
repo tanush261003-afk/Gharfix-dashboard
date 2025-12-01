@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gharfix - Lead Analytics Dashboard</title>
+    <title>Gharfix Analytics Dashboard - Lead Events</title>
     <style>
         * {
             margin: 0;
@@ -12,41 +12,10 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
-        }
-
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: white;
-            padding: 20px 30px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        .header h1 {
-            color: #333;
-            font-size: 24px;
-        }
-
-        .logout-btn {
-            padding: 10px 20px;
-            background: #e74c3c;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: background 0.3s ease;
-        }
-
-        .logout-btn:hover {
-            background: #c0392b;
         }
 
         .container {
@@ -54,575 +23,640 @@
             margin: 0 auto;
         }
 
+        header {
+            color: white;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
         .card {
             background: white;
             border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            margin-bottom: 24px;
+            padding: 25px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
         }
 
-        .filters-section {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        .filter-group {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .filter-group label {
+        .card-title {
+            font-size: 1.1em;
             color: #333;
+            margin-bottom: 15px;
             font-weight: 600;
-            margin-bottom: 8px;
-            font-size: 14px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
         }
 
-        .filter-group select {
-            padding: 10px 12px;
-            border: 2px solid #e0e0e0;
+        .metric {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8f9fa;
             border-radius: 8px;
-            font-size: 14px;
-            background: white;
-            cursor: pointer;
-            transition: border-color 0.3s ease;
-            appearance: none;
-            padding-right: 30px;
-            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            background-size: 16px;
-            padding-right: 36px;
-        }
-
-        .filter-group select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .buttons-group {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 14px;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-        }
-
-        .btn-secondary {
-            background: #f5f5f5;
-            color: #333;
-            border: 1px solid #e0e0e0;
-        }
-
-        .btn-secondary:hover {
-            background: #efefef;
-        }
-
-        .btn-success {
-            background: #27ae60;
-            color: white;
-        }
-
-        .btn-success:hover {
-            background: #229954;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 24px;
-            border-radius: 12px;
-            text-align: center;
-        }
-
-        .stat-card h3 {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            opacity: 0.9;
-        }
-
-        .stat-card .number {
-            font-size: 32px;
-            font-weight: bold;
-        }
-
-        .data-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-        }
-
-        .chart-section h2 {
-            color: #333;
-            font-size: 18px;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .status-table th {
-            background: #f5f5f5;
-            padding: 12px;
-            text-align: left;
-            color: #333;
-            font-weight: 600;
-            border-bottom: 2px solid #e0e0e0;
-        }
-
-        .status-table td {
-            padding: 12px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .status-table tr:hover {
-            background: #f9f9f9;
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            text-align: center;
-        }
-
-        .services-list {
-            list-style: none;
-        }
-
-        .services-list li {
-            padding: 12px 0;
-            border-bottom: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
-        .services-list li:last-child {
-            border-bottom: none;
+        .metric-label {
+            color: #666;
+            font-size: 0.95em;
+        }
+
+        .metric-value {
+            color: #667eea;
+            font-size: 1.8em;
+            font-weight: bold;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .control-label {
+            display: block;
+            margin-bottom: 10px;
+            color: #333;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        select, button {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        select {
+            background-color: white;
+            color: #333;
+        }
+
+        select:hover {
+            border-color: #667eea;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.2);
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+            border: none;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #764ba2;
+        }
+
+        .btn-secondary:hover {
+            background: #653a8a;
+        }
+
+        .btn-success {
+            background: #2ecc71;
+        }
+
+        .btn-success:hover {
+            background: #27ae60;
+        }
+
+        .status-chart {
+            margin-top: 20px;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            margin: 12px 0;
+            gap: 10px;
+        }
+
+        .status-label {
+            min-width: 150px;
+            color: #333;
+            font-weight: 500;
+            font-size: 0.9em;
+        }
+
+        .status-bar-bg {
+            flex: 1;
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .status-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 10px;
+            color: white;
+            font-weight: 600;
+            font-size: 0.85em;
+        }
+
+        .service-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .service-item {
+            background: #f0f4ff;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
         }
 
         .service-name {
             color: #333;
-            font-weight: 500;
+            font-weight: 600;
+            font-size: 0.9em;
         }
 
         .service-count {
-            background: #667eea;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
+            color: #667eea;
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 15px;
+            text-align: center;
             font-weight: 600;
         }
 
-        .download-buttons {
-            display: flex;
-            gap: 12px;
-            margin-top: 16px;
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
         }
 
-        .download-buttons .btn {
-            flex: 1;
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
         }
 
-        .message {
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            display: none;
-        }
-
-        .message.error {
-            background: #fee;
-            border: 1px solid #fcc;
-            color: #c33;
-            display: block;
-        }
-
-        .message.success {
-            background: #efe;
-            border: 1px solid #cfc;
-            color: #3c3;
-            display: block;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #667eea;
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
         }
 
         .spinner {
             display: inline-block;
-            width: 40px;
-            height: 40px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #667eea;
+            border-top: 2px solid transparent;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
         }
 
         @media (max-width: 768px) {
-            .filters-section {
+            .dashboard {
                 grid-template-columns: 1fr;
             }
 
-            .data-grid {
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            .controls {
                 grid-template-columns: 1fr;
-            }
-
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .header {
-                flex-direction: column;
-                gap: 16px;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Header with Logout -->
-    <div class="header">
-        <h1>📊 Gharfix Lead Analytics Dashboard</h1>
-        <button class="logout-btn" onclick="handleLogout()">Logout</button>
-    </div>
-
     <div class="container">
-        <!-- Messages -->
-        <div class="message error" id="errorMessage"></div>
-        <div class="message success" id="successMessage"></div>
+        <header>
+            <h1>Gharfix Lead Analytics</h1>
+            <p>Real-time lead event tracking and analysis - Lead Events Table</p>
+        </header>
 
-        <!-- Filters Section -->
-        <div class="card">
-            <h2>🔍 Filters</h2>
-            <div class="filters-section">
-                <div class="filter-group">
-                    <label>Filter by Status</label>
-                    <select id="statusFilter">
-                        <option value="">All Status</option>
-                    </select>
-                </div>
-                
-                <div class="filter-group">
-                    <label>Filter by Service</label>
-                    <select id="serviceFilter">
-                        <option value="">All Services</option>
-                    </select>
-                </div>
+        <!-- System Status -->
+        <div class="card full-width" style="margin-bottom: 20px;">
+            <div class="card-title">System Status</div>
+            <div class="metric">
+                <span class="metric-label">Database Status</span>
+                <span class="metric-value" id="db-status">Connecting...</span>
             </div>
-
-            <div class="buttons-group">
-                <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
-                <button class="btn btn-secondary" onclick="resetFilters()">Reset Filters</button>
-                <button class="btn btn-success" onclick="rescrapeNow()">Re-scrape Now</button>
-            </div>
-
-            <div class="download-buttons">
-                <button class="btn btn-primary" onclick="downloadCSV()">📥 Download CSV</button>
-                <button class="btn btn-primary" onclick="downloadJSON()">📥 Download JSON</button>
+            <div class="metric">
+                <span class="metric-label">Last Updated</span>
+                <span class="metric-value" id="last-updated">----</span>
             </div>
         </div>
 
-        <!-- Stats Grid -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>📋 Total Events</h3>
-                <div class="number" id="totalEvents">-</div>
+        <!-- Controls -->
+        <div class="controls">
+            <div class="control-group">
+                <label class="control-label">Filter by Status</label>
+                <select id="statusFilter">
+                    <option value="">All Status</option>
+                </select>
             </div>
-            <div class="stat-card">
-                <h3>👥 Unique Customers</h3>
-                <div class="number" id="uniqueCustomers">-</div>
+
+            <div class="control-group">
+                <label class="control-label">Filter by Service</label>
+                <select id="serviceFilter">
+                    <option value="">All Services</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <button onclick="applyFilters()" class="btn-secondary">Apply Filters</button>
+            </div>
+
+            <div class="control-group">
+                <button onclick="resetFilters()" class="btn-secondary">Reset Filters</button>
+            </div>
+
+            <div class="control-group">
+                <button onclick="downloadData('csv')" class="btn-success">Download CSV</button>
+            </div>
+
+            <div class="control-group">
+                <button onclick="downloadData('json')" class="btn-success">Download JSON</button>
+            </div>
+
+            <div class="control-group">
+                <button onclick="triggerRescrape()" class="btn-success" id="rescrapeBtn">Re-scrape Now</button>
             </div>
         </div>
 
-        <!-- Data Section -->
-        <div class="data-grid">
-            <!-- Status Distribution -->
+        <!-- Status Messages -->
+        <div id="statusMessage"></div>
+
+        <!-- Main Dashboard -->
+        <div class="dashboard">
+            <!-- Total Events Card -->
             <div class="card">
-                <div class="chart-section">
-                    <h2>📊 Status Distribution</h2>
+                <div class="card-title">Total Events</div>
+                <div class="metric">
+                    <span class="metric-label">All Lead Events</span>
+                    <span class="metric-value" id="total-lead-events">0</span>
                 </div>
-                <div id="statusContent" class="loading">
-                    <div class="spinner"></div>
+                <div class="metric">
+                    <span class="metric-label">Unique Customers</span>
+                    <span class="metric-value" id="unique-customers">0</span>
                 </div>
             </div>
 
-            <!-- Services -->
+            <!-- Status Distribution Card -->
             <div class="card">
-                <div class="chart-section">
-                    <h2>🔧 Top Services</h2>
-                </div>
-                <div id="servicesContent" class="loading">
-                    <div class="spinner"></div>
-                </div>
+                <div class="card-title">Status Distribution</div>
+                <div id="statusChart" class="status-chart"></div>
+            </div>
+
+            <!-- Services Card -->
+            <div class="card full-width">
+                <div class="card-title">Top Services</div>
+                <div id="servicesGrid" class="service-grid"></div>
             </div>
         </div>
     </div>
 
     <script>
-        // ============ AUTHENTICATION ============
-        window.addEventListener('load', () => {
-            const token = sessionStorage.getItem('authToken');
+        let allStatuses = [];
+        let allServices = [];
+        let currentData = null;
+
+        // INITIALIZATION
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAnalytics();
+            setInterval(loadAnalytics, 3600000); // Auto-refresh every 1 hr
+        });
+
+        // API CALLS
+        function loadAnalytics() {
+            // Get token from localStorage
+            const token = localStorage.getItem('auth_token');
             if (!token) {
                 window.location.href = '/login';
                 return;
             }
-            loadDashboard();
-        });
 
-        function handleLogout() {
-            sessionStorage.removeItem('authToken');
-            window.location.href = '/login';
-        }
-
-        // ============ API CALLS ============
-        async function apiCall(endpoint, options = {}) {
-            const token = sessionStorage.getItem('authToken');
-            
-            const headers = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            };
-
-            try {
-                const response = await fetch(endpoint, {
-                    headers,
-                    ...options
-                });
-
-                if (response.status === 401) {
-                    sessionStorage.removeItem('authToken');
-                    window.location.href = '/login';
-                    return null;
-                }
-
-                return response;
-            } catch (error) {
-                showError('Network error: ' + error.message);
-                return null;
-            }
-        }
-
-        // ============ DATA LOADING ============
-        async function loadDashboard() {
-            await loadAnalytics();
-            loadAllStatuses();
-            loadAllServices();
-        }
-
-        async function loadAnalytics() {
-            const response = await apiCall('/api/all-analytics');
-            if (!response) return;
-
-            const data = await response.json();
-
-            document.getElementById('totalEvents').textContent = data.total_leads;
-            document.getElementById('uniqueCustomers').textContent = data.unique_customers;
-
-            // Populate status dropdown with unique values
-            const statuses = [...new Set(data.status_distribution.map(s => s.status))];
-            const statusSelect = document.getElementById('statusFilter');
-            statuses.forEach(status => {
-                if (!Array.from(statusSelect.options).find(o => o.value === status)) {
-                    const option = document.createElement('option');
-                    option.value = status;
-                    option.textContent = status;
-                    statusSelect.appendChild(option);
-                }
+            fetch('/api/all-analytics', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(response => response.json())
+            .then(data => {
+                currentData = data;
+                updateUI(data);
+            })
+            .catch(error => {
+                showStatus('Error loading analytics: ' + error, 'error');
+                console.error('Error:', error);
             });
-
-            // Populate service dropdown
-            const services = [...new Set(data.top_services.map(s => s.service))];
-            const serviceSelect = document.getElementById('serviceFilter');
-            services.forEach(service => {
-                if (!Array.from(serviceSelect.options).find(o => o.value === service)) {
-                    const option = document.createElement('option');
-                    option.value = service;
-                    option.textContent = service;
-                    serviceSelect.appendChild(option);
-                }
-            });
-
-            displayStatusDistribution(data.status_distribution);
-            displayServices(data.top_services);
         }
 
-        async function loadAllStatuses() {
-            const response = await apiCall('/api/all-analytics');
-            if (!response) return;
-            const data = await response.json();
-            displayStatusDistribution(data.status_distribution);
-        }
-
-        async function loadAllServices() {
-            const response = await apiCall('/api/all-analytics');
-            if (!response) return;
-            const data = await response.json();
-            displayServices(data.top_services);
-        }
-
-        // ============ FILTERS ============
-        async function applyFilters() {
+        function applyFilters() {
             const status = document.getElementById('statusFilter').value;
             const service = document.getElementById('serviceFilter').value;
+
+            if (!status && !service) {
+                loadAnalytics();
+                return;
+            }
 
             const params = new URLSearchParams();
             if (status) params.append('status', status);
             if (service) params.append('service', service);
 
-            const response = await apiCall(`/api/filtered-analytics?${params}`);
-            if (!response) return;
-
-            const data = await response.json();
-            displayStatusDistribution(data.status_distribution);
-            
-            // Rebuild dropdowns after filter
-            setTimeout(() => {
-                loadAnalytics();
-            }, 100);
+            const token = localStorage.getItem('auth_token');
+            fetch(`/api/filtered-analytics?${params}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(response => response.json())
+            .then(data => {
+                currentData = data;
+                updateUI(data);
+                showStatus('Filters applied', 'success');
+            })
+            .catch(error => {
+                showStatus('Error applying filters: ' + error, 'error');
+            });
         }
 
-        async function resetFilters() {
+        function resetFilters() {
             document.getElementById('statusFilter').value = '';
             document.getElementById('serviceFilter').value = '';
-            await loadDashboard();
-            showSuccess('Filters reset');
+            loadAnalytics();
+            showStatus('Filters reset', 'success');
         }
 
-        // ============ DISPLAY FUNCTIONS ============
-        function displayStatusDistribution(data) {
-            if (!data || data.length === 0) {
-                document.getElementById('statusContent').innerHTML = '<p style="color: #999;">No data available</p>';
+        function triggerRescrape() {
+            const btn = document.getElementById('rescrapeBtn');
+            btn.disabled = true;
+            showStatus('<span class="spinner"></span>Scraping...', 'loading');
+
+            const token = localStorage.getItem('auth_token');
+            fetch('/api/rescrape', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showStatus('Rescrape completed! Refreshing...', 'success');
+                    setTimeout(loadAnalytics, 2000);
+                    btn.disabled = false;
+                } else {
+                    showStatus('Error: ' + (data.error || data.message), 'error');
+                    btn.disabled = false;
+                }
+            })
+            .catch(error => {
+                showStatus('Error: ' + error, 'error');
+                btn.disabled = false;
+            });
+        }
+
+        function downloadData(format) {
+            if (!currentData) {
+                showStatus('No data to download. Please load analytics first.', 'error');
                 return;
             }
 
-            let html = '<table class="status-table"><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody>';
-            
-            data.forEach(item => {
-                const status = item.status || 'Unknown';
-                const count = item.count || 0;
-                html += `<tr><td><strong>${status}</strong></td><td>${count}</td></tr>`;
-            });
+            let content, filename, type;
 
-            html += '</tbody></table>';
-            document.getElementById('statusContent').innerHTML = html;
-        }
-
-        function displayServices(data) {
-            if (!data || data.length === 0) {
-                document.getElementById('servicesContent').innerHTML = '<p style="color: #999;">No services available</p>';
-                return;
+            if (format === 'csv') {
+                content = generateCSV();
+                filename = `gharfix-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+                type = 'text/csv;charset=utf-8';
+            } else if (format === 'json') {
+                content = JSON.stringify(currentData, null, 2);
+                filename = `gharfix-leads-${new Date().toISOString().slice(0, 10)}.json`;
+                type = 'application/json;charset=utf-8';
             }
 
-            let html = '<ul class="services-list">';
+            const blob = new Blob([content], { type: type });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showStatus(`Downloaded ${filename}`, 'success');
+        }
+
+        function generateCSV() {
+            let csv = 'Status,Count\n';
+
+            if (currentData.status_distribution) {
+                currentData.status_distribution.forEach(item => {
+                    csv += `${item.status},${item.count}\n`;
+                });
+            }
+
+            csv += '\nService,Count\n';
+            if (currentData.top_services) {
+                currentData.top_services.forEach(item => {
+                    csv += `${item.service},${item.count}\n`;
+                });
+            }
+
+            return csv;
+        }
+
+        // UI UPDATES
+        function updateUI(data) {
+            // ✅ FIXED: Use total_lead_events (not total_events)
+            document.getElementById('total-lead-events').textContent =
+                (data.total_lead_events || 0).toLocaleString();
             
-            data.forEach(item => {
-                const service = item.service || 'Unknown';
-                const count = item.count || 0;
-                html += `<li><span class="service-name">${service}</span><span class="service-count">${count}</span></li>`;
+            // Use unique_customers
+            document.getElementById('unique-customers').textContent =
+                (data.unique_customers || 0).toLocaleString();
+
+            // Update timestamp
+            document.getElementById('last-updated').textContent =
+                new Date().toLocaleTimeString();
+
+            // Update system status
+            document.getElementById('db-status').textContent = 'Connected';
+
+            // Update status filter dropdown
+            updateStatusDropdown(data.status_distribution);
+
+            // Update service filter dropdown
+            updateServiceDropdown(data.top_services);
+
+            // Update status chart
+            updateStatusChart(data.status_distribution);
+
+            // Update services grid
+            updateServicesGrid(data.top_services);
+        }
+
+        function updateStatusDropdown(statuses) {
+            const select = document.getElementById('statusFilter');
+            const currentValue = select.value;
+
+            // Get unique statuses from database
+            const uniqueStatuses = [...new Set(statuses.map(s => s.status))];
+
+            // Rebuild dropdown with all statuses from database
+            select.innerHTML = '<option value="">All Status</option>';
+            uniqueStatuses.forEach(status => {
+                const option = document.createElement('option');
+                option.value = status;
+                option.textContent = status;
+                select.appendChild(option);
             });
 
-            html += '</ul>';
-            document.getElementById('servicesContent').innerHTML = html;
+            // Restore previous selection if it still exists
+            if (uniqueStatuses.includes(currentValue)) {
+                select.value = currentValue;
+            }
         }
 
-        // ============ EXPORT ============
-        async function downloadCSV() {
-            const status = document.getElementById('statusFilter').value;
-            const service = document.getElementById('serviceFilter').value;
+        function updateServiceDropdown(services) {
+            const select = document.getElementById('serviceFilter');
+            const currentValue = select.value;
 
-            const params = new URLSearchParams();
-            if (status) params.append('status', status);
-            if (service) params.append('service', service);
+            // Get unique services from database
+            const uniqueServices = [...new Set(services.map(s => s.service))];
 
-            const token = sessionStorage.getItem('authToken');
-            window.location.href = `/api/export/csv?${params}`;
+            // Rebuild dropdown with ALL services
+            select.innerHTML = '<option value="">All Services</option>';
+            uniqueServices.forEach(service => {
+                const option = document.createElement('option');
+                option.value = service;
+                option.textContent = service;
+                select.appendChild(option);
+            });
+
+            // Restore previous selection if it still exists
+            if (uniqueServices.includes(currentValue)) {
+                select.value = currentValue;
+            }
         }
 
-        async function downloadJSON() {
-            const status = document.getElementById('statusFilter').value;
-            const service = document.getElementById('serviceFilter').value;
+        function updateStatusChart(statuses) {
+            const container = document.getElementById('statusChart');
+            const total = statuses.reduce((sum, s) => sum + s.count, 0) || 1;
 
-            const params = new URLSearchParams();
-            if (status) params.append('status', status);
-            if (service) params.append('service', service);
-
-            window.location.href = `/api/export/json?${params}`;
+            container.innerHTML = statuses
+                .sort((a, b) => b.count - a.count)
+                .map(s => {
+                    const percentage = ((s.count / total) * 100).toFixed(1);
+                    return `
+                        <div class="status-bar">
+                            <span class="status-label">${s.status}</span>
+                            <div class="status-bar-bg">
+                                <div class="status-bar-fill" style="width: ${percentage}%">
+                                    ${s.count}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                })
+                .join('');
         }
 
-        // ============ RESCRAPE ============
-        async function rescrapeNow() {
-            if (!confirm('Start re-scraping data? This may take a few minutes.')) return;
-
-            const response = await apiCall('/api/rescrape', { method: 'POST' });
-            if (!response) return;
-
-            const data = await response.json();
-            showSuccess(data.message);
-            
-            setTimeout(() => {
-                location.reload();
-            }, 2000);
+        function updateServicesGrid(services) {
+            const container = document.getElementById('servicesGrid');
+            container.innerHTML = services
+                .slice(0, 20)
+                .map(s => `
+                    <div class="service-item">
+                        <div class="service-name">${s.service}</div>
+                        <div class="service-count">${s.count}</div>
+                    </div>
+                `)
+                .join('');
         }
 
-        // ============ MESSAGES ============
-        function showError(message) {
-            const el = document.getElementById('errorMessage');
-            el.textContent = '✗ ' + message;
-            el.style.display = 'block';
-            setTimeout(() => el.style.display = 'none', 5000);
-        }
+        function showStatus(message, type) {
+            const div = document.getElementById('statusMessage');
+            div.innerHTML = `<div class="status ${type}">${message}</div>`;
 
-        function showSuccess(message) {
-            const el = document.getElementById('successMessage');
-            el.textContent = '✓ ' + message;
-            el.style.display = 'block';
-            setTimeout(() => el.style.display = 'none', 5000);
+            if (type === 'success' || type === 'loading') {
+                setTimeout(() => { div.innerHTML = ''; }, 5000);
+            }
         }
     </script>
 </body>
